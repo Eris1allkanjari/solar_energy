@@ -16,9 +16,12 @@ df["time"] = pd.to_datetime(df["time"])
 df = df.set_index("time")
 
 # target variable
-y = df["pv_total_kWh"].clip(lower=0)
+y = df["pv_total_kWh"]
 
-# exogenous variables (very important selection)
+# optional: handle night-time zeros (improves ARIMA behavior)
+y = y.replace(0, np.nan).interpolate()
+
+# exogenous variables
 exog = df[[
     "temperature_C",
     "wind_speed_ms",
@@ -26,6 +29,18 @@ exog = df[[
     "cloud_cover_okta",
     "solar_radiation_Wm2"
 ]]
+
+# clean exogenous variables (fixes your error)
+exog = exog.replace([np.inf, -np.inf], np.nan)
+exog = exog.interpolate()
+exog = exog.bfill().ffill()
+
+# align target and exogenous
+y, exog = y.align(exog, join="inner")
+
+# sanity check
+print("NaNs in y:", y.isna().sum())
+print("NaNs in exog:", exog.isna().sum().sum())
 
 # check stationarity
 result = adfuller(y)
@@ -50,9 +65,11 @@ train_size = int(len(df) * 0.8)
 y_train, y_test = y[:train_size], y[train_size:]
 exog_train, exog_test = exog[:train_size], exog[train_size:]
 
-# grid search parameters
-p = d = q = range(0, 2)
-P = D = Q = range(0, 2)
+# reduced grid search (since data is already stationary)
+p = q = range(0, 2)
+d = [0]
+P = Q = range(0, 2)
+D = [0]
 s = 24  # daily seasonality
 
 pdq = list(itertools.product(p, d, q))
@@ -61,6 +78,7 @@ seasonal_pdq = list(itertools.product(P, D, Q))
 best_aic = np.inf
 best_order = None
 best_seasonal_order = None
+errors = 0
 
 # grid search
 for order in pdq:
@@ -83,12 +101,20 @@ for order in pdq:
                 best_order = order
                 best_seasonal_order = seasonal_order
 
-        except:
+        except Exception:
+            errors += 1
             continue
 
+print("failed models:", errors)
 print("best order:", best_order)
 print("best seasonal order:", best_seasonal_order)
 print("best AIC:", best_aic)
+
+# fallback in case grid search fails
+if best_order is None:
+    print("using fallback model")
+    best_order = (1, 0, 1)
+    best_seasonal_order = (1, 0, 1, 24)
 
 # train final model
 model = SARIMAX(
