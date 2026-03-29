@@ -7,48 +7,73 @@ solar = pd.read_csv("unisolar/Solar_Energy_Generation.csv")
 weather = pd.read_csv("unisolar/Weather_Data_reordered_all.csv")
 site = pd.read_csv("unisolar/Solar_Site_Details.csv")
 
+# timestamp processing
 solar["Timestamp"] = pd.to_datetime(solar["Timestamp"])
 weather["Timestamp"] = pd.to_datetime(weather["Timestamp"])
 
-# Merging Solar with Weather data
+# merge solar + weather
 df = solar.merge(
     weather,
     on=["CampusKey", "Timestamp"],
     how="left"
 )
 
-#  Merging Site Metadata
+# merge site metadata
 df = df.merge(
     site,
     on=["CampusKey", "SiteKey"],
     how="left"
 )
 
-# Solar generation is NaN at night → replace with 0
+# handle missing values
+
+# solar: nan = no sun → set to 0
 df["SolarGeneration"] = df["SolarGeneration"].fillna(0)
 
-# # Optional: forward fill weather (if needed)
-# weather_cols = [
-#     "ApparentTemperature",
-#     "AirTemperature",
-#     "DewPointTemperature",
-#     "RelativeHumidity",
-#     "WindSpeed",
-#     "WindDirection"
-# ]
-#
-# df[weather_cols] = df[weather_cols].fillna(method="ffill")
-
-# Feature Engineering
-df["hour"] = df["Timestamp"].dt.hour
-df["day"] = df["Timestamp"].dt.day
-df["month"] = df["Timestamp"].dt.month
-df["dayofyear"] = df["Timestamp"].dt.dayofyear
+# sort before filling
+df = df.sort_values(["CampusKey", "Timestamp"])
 
 
-# Sort and clean
-df = df.sort_values(by=["SiteKey", "Timestamp"]).reset_index(drop=True)
+#  aggregate all sites
+# df = df.groupby("Timestamp").agg({
+#     "SolarGeneration": "sum",
+#     "AirTemperature": "mean",
+#     "RelativeHumidity": "mean",
+#     "WindSpeed": "mean",
+#     "DewPointTemperature": "mean"
+# }).reset_index()
 
+# resample to hourly
+df = df.set_index("Timestamp")
 
-df.to_csv("processed_data/unisolar_solar_weather.csv", index=False)
+df_hourly = df.resample("h").agg({
+    "SolarGeneration": "sum",
+    "AirTemperature": "mean",
+    "RelativeHumidity": "mean",
+    "WindSpeed": "mean",
+    "DewPointTemperature": "mean"
+})
+
+df_hourly = df_hourly.reset_index()
+
+# feature engineering
+df_hourly["hour"] = df_hourly["Timestamp"].dt.hour
+df_hourly["day"] = df_hourly["Timestamp"].dt.day
+df_hourly["month"] = df_hourly["Timestamp"].dt.month
+df_hourly["dayofyear"] = df_hourly["Timestamp"].dt.dayofyear
+
+# handle missing after resampling
+df_hourly = df_hourly.interpolate()
+
+df_hourly = df_hourly.rename(columns={
+    "Timestamp": "time",
+    "SolarGeneration": "solar_generation_kWh",
+    "AirTemperature": "air_temperature_C",
+    "RelativeHumidity": "relative_humidity_pct",
+    "WindSpeed": "wind_speed_mps",
+    "DewPointTemperature": "dew_point_temperature_C"
+})
+
+# save final dataset
+df_hourly.to_csv("processed_data/unisolar_pv_data.csv", index=False)
 
