@@ -18,8 +18,16 @@ df = df.set_index("time")
 # target variable
 y = df["pv_total_kWh"]
 
-# optional: handle night-time zeros (improves ARIMA behavior)
-y = y.replace(0, np.nan).interpolate()
+# handle solar zeros + clean NaNs properly
+y = y.replace(0, np.nan)
+
+# interpolate internal gaps
+y = y.interpolate()
+
+# fill edges
+y = y.bfill().ffill()
+
+print("NaNs in y after cleaning:", y.isna().sum())
 
 # exogenous variables
 exog = df[[
