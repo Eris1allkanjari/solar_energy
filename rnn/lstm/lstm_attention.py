@@ -7,7 +7,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, Attention
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, Attention , GlobalAveragePooling1D
 
 # load dataset
 df = pd.read_csv("../../utrecht/processed_data/utrecht_pv_data.csv")
@@ -74,7 +74,7 @@ x = Dropout(0.2)(x)
 attention = Attention()([x, x])
 
 # reduce sequence
-x = tf.reduce_mean(attention, axis=1)
+x = GlobalAveragePooling1D()(attention)
 
 # dense layers
 x = Dense(64, activation="relu")(x)
