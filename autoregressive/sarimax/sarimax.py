@@ -15,7 +15,6 @@ df = pd.read_csv("../../utrecht/processed_data/utrecht_pv_data.csv")
 df["time"] = pd.to_datetime(df["time"])
 df = df.set_index("time")
 
-# ✅ fix frequency warning
 df = df.asfreq("h")
 
 # target variable
