@@ -1,5 +1,6 @@
-from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
+from tensorflow.keras.models import Model
+
 
 
 def base_lstm(input_tensor, config, return_sequences_last=True):
@@ -24,6 +25,6 @@ def build_lstm(input_shape, config):
     x = Dense(32, activation="relu")(x)
     outputs = Dense(1)(x)
 
-    model = Sequential([inputs, x, outputs])
+    model = Model(inputs, outputs)
 
     return model

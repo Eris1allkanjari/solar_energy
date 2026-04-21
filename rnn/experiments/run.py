@@ -13,13 +13,9 @@ from rnn.models.lstm import build_lstm
 from rnn.models.lstm_attention import build_lstm_attention
 from rnn.training.evaluation import evaluate
 from rnn.training.trainer import train_model
+from rnn.utils.scaler import inverse_target
+import tensorflow as tf
 
-
-# Helper for inverse scaling
-def inverse_target(scaler, y, num_features):
-    return scaler.inverse_transform(
-        np.concatenate([y.reshape(-1, 1), np.zeros((len(y), num_features - 1))], axis=1)
-    )[:, 0]
 
 
 # Model factory
@@ -88,12 +84,12 @@ def run_experiment(model_name, config, df):
 # Main experiment loop
 # ------------------------
 def main():
-
+    print(tf.config.list_physical_devices('GPU'))
     # load dataset once
-    df = load_dataset("data/processed/utrecht_pv_data.csv")
+    df = load_dataset("../../utrecht/processed_data/utrecht_pv_data.csv")
 
     # define experiments
-    models = ["lstm", "gru", "attention"]
+    models = ["gru"]
     configs = [BaseConfig(), SmallModelConfig(), LargeModelConfig(), HighDropoutConfig()]
 
     results = []
