@@ -1,5 +1,4 @@
 import os
-import numpy as np
 import pandas as pd
 
 from sklearn.preprocessing import MinMaxScaler
@@ -9,9 +8,9 @@ from src.data.loader import load_dataset
 from src.data.preprocessing import add_time_features, select_features, clean_data
 from src.data.sequences import create_sequences
 from src.experiments.constants import DATA_FILE_PATH
-from src.models.gru import build_gru
-from src.models.lstm import build_lstm
-from src.models.lstm_attention import build_lstm_attention
+from src.models.rnn.gru import build_gru
+from src.models.rnn.lstm import build_lstm
+from src.models.rnn.lstm_attention import build_lstm_attention
 from src.training.evaluation import evaluate
 from src.training.trainer import train_model
 from src.utils.scaler import inverse_target

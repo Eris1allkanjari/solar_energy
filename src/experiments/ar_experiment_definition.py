@@ -5,10 +5,10 @@ from src.configs.ar_configs import (
     SARIMAXConfig
 )
 
-from src.models.arima import build_arima
-from src.models.arimax import build_arimax
-from src.models.sarima import build_sarima
-from src.models.sarimax import build_sarimax
+from src.models.ar.arima import build_arima
+from src.models.ar.arimax import build_arimax
+from src.models.ar.sarima import build_sarima
+from src.models.ar.sarimax import build_sarimax
 
 from src.forecasting.direct_forecast import direct_forecast
 from src.forecasting.rolling_forecast import rolling_forecast
