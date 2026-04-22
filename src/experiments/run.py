@@ -4,17 +4,17 @@ import pandas as pd
 
 from sklearn.preprocessing import MinMaxScaler
 
-from rnn.configs.config import BaseConfig, LargeModelConfig, HighDropoutConfig, SmallModelConfig
-from rnn.data.loader import load_dataset
-from rnn.data.preprocessing import add_time_features, select_features, clean_data
-from rnn.data.sequences import create_sequences
-from rnn.experiments.constants import DATA_FILE_PATH
-from rnn.models.gru import build_gru
-from rnn.models.lstm import build_lstm
-from rnn.models.lstm_attention import build_lstm_attention
-from rnn.training.evaluation import evaluate
-from rnn.training.trainer import train_model
-from rnn.utils.scaler import inverse_target
+from src.configs.config import BaseConfig, LargeModelConfig, HighDropoutConfig, SmallModelConfig
+from src.data.loader import load_dataset
+from src.data.preprocessing import add_time_features, select_features, clean_data
+from src.data.sequences import create_sequences
+from src.experiments.constants import DATA_FILE_PATH
+from src.models.gru import build_gru
+from src.models.lstm import build_lstm
+from src.models.lstm_attention import build_lstm_attention
+from src.training.evaluation import evaluate
+from src.training.trainer import train_model
+from src.utils.scaler import inverse_target
 
 
 

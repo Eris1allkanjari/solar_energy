@@ -2,8 +2,8 @@ import pandas as pd
 
 from statsmodels.tsa.stattools import adfuller
 
-from rnn.data.loader import load_dataset
-from rnn.experiments.constants import DATA_FILE_PATH
+from src.data.loader import load_dataset
+from src.experiments.constants import DATA_FILE_PATH
 
 
 def run_adf_test(series):

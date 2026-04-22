@@ -7,7 +7,7 @@ from tensorflow.keras.layers import (
     GlobalAveragePooling1D
 )
 
-from rnn.models.lstm import base_lstm
+from src.models.lstm import base_lstm
 
 
 def build_lstm_attention(input_shape, config):

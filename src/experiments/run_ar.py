@@ -4,9 +4,9 @@ import pandas as pd
 
 from sklearn.preprocessing import StandardScaler
 
-from rnn.data.loader import load_dataset
-from rnn.experiments.ar_experiment_definition import experiments, run_experiment
-from rnn.experiments.constants import DATA_FILE_PATH
+from src.data.loader import load_dataset
+from src.experiments.ar_experiment_definition import experiments, run_experiment
+from src.experiments.constants import DATA_FILE_PATH
 
 
 def main():

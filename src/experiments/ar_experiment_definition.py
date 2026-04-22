@@ -1,20 +1,20 @@
-from rnn.configs.ar_configs import (
+from src.configs.ar_configs import (
     ARIMAConfig,
     SARIMAConfig,
     ARIMAXConfig,
     SARIMAXConfig
 )
 
-from rnn.models.arima import build_arima
-from rnn.models.arimax import build_arimax
-from rnn.models.sarima import build_sarima
-from rnn.models.sarimax import build_sarimax
+from src.models.arima import build_arima
+from src.models.arimax import build_arimax
+from src.models.sarima import build_sarima
+from src.models.sarimax import build_sarimax
 
-from rnn.forecasting.direct_forecast import direct_forecast
-from rnn.forecasting.rolling_forecast import rolling_forecast
+from src.forecasting.direct_forecast import direct_forecast
+from src.forecasting.rolling_forecast import rolling_forecast
 
-from rnn.training.evaluation import evaluate
-from rnn.training.statistical_trainer import fit_statistical_model
+from src.training.evaluation import evaluate
+from src.training.statistical_trainer import fit_statistical_model
 
 experiments = [
 
