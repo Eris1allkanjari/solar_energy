@@ -7,7 +7,6 @@ from sklearn.preprocessing import StandardScaler
 from rnn.data.loader import load_dataset
 from rnn.experiments.ar_experiment_definition import experiments, run_experiment
 from rnn.experiments.constants import DATA_FILE_PATH
-from rnn.utils.acf_pacf_plotting import analyze_acf_pacf
 
 
 def main():
@@ -23,9 +22,6 @@ def main():
     y = df["pv_total_kWh"].clip(lower=0)
 
     y = y.interpolate().bfill().ffill()
-
-    # acf and pacf analysis
-    analyze_acf_pacf(y)
 
     # train test split
 
