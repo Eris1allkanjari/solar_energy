@@ -8,13 +8,13 @@ from rnn.configs.config import BaseConfig, LargeModelConfig, HighDropoutConfig, 
 from rnn.data.loader import load_dataset
 from rnn.data.preprocessing import add_time_features, select_features, clean_data
 from rnn.data.sequences import create_sequences
+from rnn.experiments.constants import DATA_FILE_PATH
 from rnn.models.gru import build_gru
 from rnn.models.lstm import build_lstm
 from rnn.models.lstm_attention import build_lstm_attention
 from rnn.training.evaluation import evaluate
 from rnn.training.trainer import train_model
 from rnn.utils.scaler import inverse_target
-import tensorflow as tf
 
 
 
@@ -30,9 +30,7 @@ def get_model(model_name, input_shape, config):
         raise ValueError(f"Unknown model: {model_name}")
 
 
-# ------------------------
 # Run single experiment
-# ------------------------
 def run_experiment(model_name, config, df):
 
     # preprocessing
@@ -80,13 +78,10 @@ def run_experiment(model_name, config, df):
     }
 
 
-# ------------------------
 # Main experiment loop
-# ------------------------
 def main():
-    print(tf.config.list_physical_devices('GPU'))
     # load dataset once
-    df = load_dataset("../../utrecht/processed_data/utrecht_pv_data.csv")
+    df = load_dataset(DATA_FILE_PATH)
 
     # define experiments
     models = ["gru"]
