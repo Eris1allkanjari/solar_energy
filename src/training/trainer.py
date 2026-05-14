@@ -3,22 +3,13 @@ import torch
 import torch.nn as nn
 
 
-def train_model(model, X_train, y_train, config):
+def train_model(model, X_train, y_train, X_val, y_val, config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
-    val_size = int(len(X_train) * 0.1)
-    train_size = len(X_train) - val_size
-
-    X_tr = X_train[:train_size]
-    y_tr = y_train[:train_size]
-
-    X_val = X_train[train_size:]
-    y_val = y_train[train_size:]
-
     train_dataset = TensorDataset(
-        torch.tensor(X_tr, dtype=torch.float32),
-        torch.tensor(y_tr, dtype=torch.float32).view(-1, 1)
+        torch.tensor(X_train, dtype=torch.float32),
+        torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
     )
 
     val_dataset = TensorDataset(
@@ -39,6 +30,7 @@ def train_model(model, X_train, y_train, config):
     )
 
     criterion = nn.MSELoss()
+
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=config.LEARNING_RATE
@@ -57,8 +49,14 @@ def train_model(model, X_train, y_train, config):
             y_batch = y_batch.to(device)
 
             optimizer.zero_grad()
+
             predictions = model(X_batch)
-            loss = criterion(predictions, y_batch)
+
+            loss = criterion(
+                predictions,
+                y_batch
+            )
+
             loss.backward()
             optimizer.step()
 
@@ -75,7 +73,12 @@ def train_model(model, X_train, y_train, config):
                 y_batch = y_batch.to(device)
 
                 predictions = model(X_batch)
-                loss = criterion(predictions, y_batch)
+
+                loss = criterion(
+                    predictions,
+                    y_batch
+                )
+
                 val_loss += loss.item()
 
         val_loss /= len(val_loader)
@@ -89,10 +92,12 @@ def train_model(model, X_train, y_train, config):
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
+
             best_state = {
                 key: value.cpu().clone()
                 for key, value in model.state_dict().items()
             }
+
         else:
             patience_counter += 1
 

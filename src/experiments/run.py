@@ -88,15 +88,19 @@ def run_experiment(model_name, config, df):
 
     # split
 
-    split = int(
-        len(X) * 0.8
-    )
+    n = len(X)
 
-    X_train = X[:split]
-    X_test = X[split:]
+    train_end = int(n * 0.65)
+    val_end = int(n * 0.80)
 
-    y_train = y[:split]
-    y_test = y[split:]
+    X_train = X[:train_end]
+    y_train = y[:train_end]
+
+    X_val = X[train_end:val_end]
+    y_val = y[train_end:val_end]
+
+    X_test = X[val_end:]
+    y_test = y[val_end:]
 
     # build model
 
@@ -112,6 +116,8 @@ def run_experiment(model_name, config, df):
         model=model,
         X_train=X_train,
         y_train=y_train,
+        X_val=X_val,
+        y_val=y_val,
         config=config
     )
 
@@ -139,7 +145,7 @@ def run_experiment(model_name, config, df):
 
     # evaluate
 
-    mae, rmse = evaluate(
+    mae, rmse, mape, smape = evaluate(
         y_test_rescaled,
         y_pred_rescaled
     )
@@ -148,7 +154,9 @@ def run_experiment(model_name, config, df):
         "model": model_name,
         "config": config.__class__.__name__,
         "mae": mae,
-        "rmse": rmse
+        "rmse": rmse,
+        "mape": mape,
+        "smape": smape
     }
 
 
@@ -197,7 +205,9 @@ def main():
 
             print(
                 f"mae: {res['mae']:.3f}, "
-                f"rmse: {res['rmse']:.3f}"
+                f"rmse: {res['rmse']:.3f}, "
+                f"mape: {res['mape']:.2f}%, "
+                f"smape: {res['smape']:.2f}%"
             )
 
     # save results
