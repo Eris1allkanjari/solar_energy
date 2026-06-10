@@ -18,41 +18,41 @@ from src.training.statistical_trainer import fit_statistical_model
 
 experiments = [
 
-    {
-        "name": "arima",
-
-        "builder": build_arima,
-
-        "config": ARIMAConfig(),
-
-        "forecasting": "direct",
-
-        "use_exog": False
-    },
-
-    {
-        "name": "sarima",
-
-        "builder": build_sarima,
-
-        "config": SARIMAConfig(),
-
-        "forecasting": "direct",
-
-        "use_exog": False
-    },
-
-    {
-        "name": "arimax",
-
-        "builder": build_arimax,
-
-        "config": ARIMAXConfig(),
-
-        "forecasting": "direct",
-
-        "use_exog": True
-    },
+    # {
+    #     "name": "arima",
+    #
+    #     "builder": build_arima,
+    #
+    #     "config": ARIMAConfig(),
+    #
+    #     "forecasting": "direct",
+    #
+    #     "use_exog": False
+    # },
+    #
+    # {
+    #     "name": "sarima",
+    #
+    #     "builder": build_sarima,
+    #
+    #     "config": SARIMAConfig(),
+    #
+    #     "forecasting": "direct",
+    #
+    #     "use_exog": False
+    # },
+    #
+    # {
+    #     "name": "arimax",
+    #
+    #     "builder": build_arimax,
+    #
+    #     "config": ARIMAXConfig(),
+    #
+    #     "forecasting": "direct",
+    #
+    #     "use_exog": True
+    # },
 
     {
         "name": "sarimax",
@@ -138,7 +138,7 @@ def run_experiment(
 
     # evaluation
 
-    mae, rmse = evaluate(
+    mae, rmse, mape, smape = evaluate(
         y_test,
         predictions
     )
@@ -159,5 +159,7 @@ def run_experiment(
 
         "mae": mae,
 
-        "rmse": rmse
+        "rmse": rmse,
+        "mape": mape,
+        "smape": smape,
     }

@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import numpy as np
 
 from sklearn.preprocessing import MinMaxScaler
 
@@ -71,42 +72,55 @@ def run_experiment(model_name, config, df):
         df_proc
     )
 
-    # scaling
+    # split before scaling
+
+    n_raw = len(df_proc)
+
+    train_end = int(n_raw * 0.65)
+    val_end = int(n_raw * 0.80)
+
+    train_df = df_proc.iloc[:train_end]
+    val_df = df_proc.iloc[train_end:val_end]
+    test_df = df_proc.iloc[val_end:]
+
+    # scale using training data only
 
     scaler = MinMaxScaler()
 
-    data_scaled = scaler.fit_transform(
-        df_proc
+    train_scaled = scaler.fit_transform(
+        train_df
     )
 
-    # sequences
+    val_scaled = scaler.transform(
+        val_df
+    )
 
-    X, y = create_sequences(
-        data_scaled,
+    test_scaled = scaler.transform(
+        test_df
+    )
+
+    # create sequences separately for each split
+
+    X_train, y_train = create_sequences(
+        train_scaled,
         config.SEQ_LEN
     )
 
-    # split
+    X_val, y_val = create_sequences(
+        val_scaled,
+        config.SEQ_LEN
+    )
 
-    n = len(X)
-
-    train_end = int(n * 0.65)
-    val_end = int(n * 0.80)
-
-    X_train = X[:train_end]
-    y_train = y[:train_end]
-
-    X_val = X[train_end:val_end]
-    y_val = y[train_end:val_end]
-
-    X_test = X[val_end:]
-    y_test = y[val_end:]
+    X_test, y_test = create_sequences(
+        test_scaled,
+        config.SEQ_LEN
+    )
 
     # build model
 
     model = get_model(
         model_name=model_name,
-        input_shape=(config.SEQ_LEN, X.shape[2]),
+        input_shape=(config.SEQ_LEN, X_train.shape[2]),
         config=config
     )
 
@@ -134,13 +148,19 @@ def run_experiment(model_name, config, df):
     y_test_rescaled = inverse_target(
         scaler,
         y_test,
-        X.shape[2]
+        X_train.shape[2]
     )
 
     y_pred_rescaled = inverse_target(
         scaler,
         y_pred.flatten(),
-        X.shape[2]
+        X_train.shape[2]
+    )
+
+    y_pred_rescaled = np.clip(
+        y_pred_rescaled,
+        0,
+        None
     )
 
     # evaluate
@@ -171,7 +191,7 @@ def main():
     # define experiments
 
     models = [
-        # "gru",
+        "gru",
         "lstm",
         # "attention"
     ]

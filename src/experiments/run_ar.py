@@ -107,6 +107,14 @@ def main():
 
             start = time.time()
 
+            if exp["forecasting"] == "rolling":
+                rolling_steps = exp["config"].ROLLING_STEPS
+
+                y_test_aligned = y_test_aligned.iloc[:rolling_steps]
+
+                if exog_test is not None:
+                    exog_test = exog_test.iloc[:rolling_steps]
+
             res = run_experiment(
                 build_model=exp["builder"],
                 model_name=exp["name"],
@@ -127,11 +135,10 @@ def main():
             # print results
 
             print(
-                f"mae: {res['mae']:.4f}"
-            )
-
-            print(
-                f"rmse: {res['rmse']:.4f}"
+                f"mae: {res['mae']:.4f}, "
+                f"rmse: {res['rmse']:.4f}, "
+                f"mape: {res['mape']:.2f}%, "
+                f"smape: {res['smape']:.2f}%"
             )
 
             print(
