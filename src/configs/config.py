@@ -26,3 +26,15 @@ class LargeModelConfig(BaseConfig):
 
 class HighDropoutConfig(BaseConfig):
     DROPOUT = 0.4
+
+class ExperimentConfig:
+    def __init__(self, params, seq_len):
+        self.SEQ_LEN = seq_len
+
+        self.HIDDEN_UNITS_1 = params["hidden_units_1"]
+        self.HIDDEN_UNITS_2 = params["hidden_units_2"]
+        self.DROPOUT = params["dropout"]
+        self.LEARNING_RATE = params["learning_rate"]
+        self.BATCH_SIZE = params["batch_size"]
+        self.EPOCHS = params["epochs"]
+        self.PATIENCE = params["patience"]
