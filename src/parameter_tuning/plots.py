@@ -83,7 +83,8 @@ def plot_real_vs_predicted(
     y_pred,
     output_path=None,
     title="actual vs predicted pv production",
-    max_points=None
+    max_points=None,
+    show=True
 ):
     # plot actual and predicted values over time
 
@@ -176,4 +177,7 @@ def plot_config_comparison(
             dpi=300
         )
 
-    plt.show()
+    if show:
+        plt.show()
+    else:
+        plt.close()

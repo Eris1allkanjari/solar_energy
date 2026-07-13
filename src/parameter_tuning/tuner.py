@@ -1,5 +1,6 @@
 import itertools
 import numpy as np
+import pandas as pd
 
 from sklearn.preprocessing import MinMaxScaler
 
@@ -156,7 +157,14 @@ def select_best_l(best_per_l):
     )
 
 
-def final_test(model_name, get_model, df_proc, best_setting):
+def final_test(
+    model_name,
+    get_model,
+    df_proc,
+    best_setting,
+    test_steps=None,
+    align_test_start=False
+):
     seq_len = best_setting["seq_len"]
 
     params = {
@@ -178,6 +186,35 @@ def final_test(model_name, get_model, df_proc, best_setting):
         df_proc=df_proc,
         seq_len=seq_len
     )
+
+    if align_test_start:
+        n_raw = len(df_proc)
+        val_end = int(n_raw * 0.80)
+
+        test_df = df_proc.iloc[val_end:]
+
+        if test_steps is not None:
+            test_df = test_df.iloc[:test_steps]
+
+        test_context = pd.concat(
+            [
+                df_proc.iloc[val_end - seq_len:val_end],
+                test_df
+            ],
+            axis=0
+        )
+
+        test_context_scaled = scaler.transform(
+            test_context
+        )
+
+        X_test, y_test = create_sequences(
+            test_context_scaled,
+            seq_len
+        )
+    elif test_steps is not None:
+        X_test = X_test[:test_steps]
+        y_test = y_test[:test_steps]
 
     model = get_model(
         model_name=model_name,
