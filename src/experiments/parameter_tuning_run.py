@@ -1,6 +1,8 @@
-import os
+from pathlib import Path
+
 import pandas as pd
 
+from src.configs.evaluation import TEST_STEPS, VALIDATION_STEPS
 from src.data.loader import load_dataset
 from src.data.preprocessing import (
     add_time_features,
@@ -29,6 +31,9 @@ from src.parameter_tuning.plots import (
     plot_mae_by_l,
     plot_real_vs_predicted
 )
+
+
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 
 def get_model(model_name, input_shape, config):
@@ -92,8 +97,8 @@ def run_tuning_for_model(model_name, df_proc):
         seq_lengths=SEQ_LENGTHS
     )
 
-    os.makedirs(
-        "results",
+    RESULTS_DIR.mkdir(
+        parents=True,
         exist_ok=True
     )
 
@@ -104,7 +109,7 @@ def run_tuning_for_model(model_name, df_proc):
     )
 
     all_results_path = (
-        f"results/{model_name}_all_tuning_results.csv"
+        RESULTS_DIR / f"{model_name}_all_tuning_results.csv"
     )
 
     all_results_df.to_csv(
@@ -119,7 +124,7 @@ def run_tuning_for_model(model_name, df_proc):
     )
 
     best_per_l_path = (
-        f"results/{model_name}_best_per_l.csv"
+        RESULTS_DIR / f"{model_name}_best_per_l.csv"
     )
 
     best_per_l_df.to_csv(
@@ -131,7 +136,9 @@ def run_tuning_for_model(model_name, df_proc):
 
     plot_mae_by_l(
         best_per_l,
-        output_path=f"results/{model_name}_mae_by_l.png"
+        output_path=str(
+            RESULTS_DIR / f"{model_name}_mae_by_l.png"
+        )
     )
 
     # select best l and hyperparameters
@@ -154,7 +161,10 @@ def run_tuning_for_model(model_name, df_proc):
         model_name=model_name,
         get_model=get_model,
         df_proc=df_proc,
-        best_setting=best_setting
+        best_setting=best_setting,
+        test_steps=TEST_STEPS,
+        align_test_start=True,
+        validation_steps=VALIDATION_STEPS
     )
 
     # save final test metrics
@@ -169,6 +179,9 @@ def run_tuning_for_model(model_name, df_proc):
                 "dropout": final_result["dropout"],
                 "learning_rate": final_result["learning_rate"],
                 "batch_size": final_result["batch_size"],
+                "validation_steps": VALIDATION_STEPS,
+                "test_steps": len(final_result["y_test"]),
+                "training_data": "train_only",
                 "mae": final_result["mae"],
                 "rmse": final_result["rmse"],
                 "mape": final_result["mape"],
@@ -178,7 +191,7 @@ def run_tuning_for_model(model_name, df_proc):
     )
 
     final_result_path = (
-        f"results/{model_name}_final_test_result.csv"
+        RESULTS_DIR / f"{model_name}_final_test_result.csv"
     )
 
     final_result_df.to_csv(
@@ -191,7 +204,9 @@ def run_tuning_for_model(model_name, df_proc):
     plot_real_vs_predicted(
         y_true=final_result["y_test"],
         y_pred=final_result["y_pred"],
-        output_path=f"results/{model_name}_actual_vs_predicted.png",
+        output_path=str(
+            RESULTS_DIR / f"{model_name}_actual_vs_predicted.png"
+        ),
         title=f"actual vs predicted for {model_name}, L={final_result['seq_len']}",
         max_points=500
     )
@@ -276,12 +291,13 @@ def main():
     )
 
     summary_df.to_csv(
-        "results/tuning_summary.csv",
+        RESULTS_DIR / "tuning_summary.csv",
         index=False
     )
 
     print(
-        "\nsaved tuning summary to results/tuning_summary.csv"
+        "\nsaved tuning summary to "
+        f"{RESULTS_DIR / 'tuning_summary.csv'}"
     )
 
 

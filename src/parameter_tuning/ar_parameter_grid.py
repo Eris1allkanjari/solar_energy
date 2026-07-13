@@ -1,12 +1,15 @@
+from src.configs.evaluation import (
+    TEST_STEPS as AR_TEST_STEPS,
+    VALIDATION_STEPS as AR_VALIDATION_STEPS
+)
+
+
 AR_WINDOW_LENGTHS = [
     24 * 7,
     24 * 14,
     24 * 30,
     24 * 60
 ]
-
-AR_VALIDATION_STEPS = 168
-AR_TEST_STEPS = 1000
 
 AR_HYPERPARAMETER_GRIDS = {
     "arima": {

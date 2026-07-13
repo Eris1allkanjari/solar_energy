@@ -4,6 +4,13 @@ import pandas as pd
 
 from sklearn.preprocessing import StandardScaler
 
+from src.configs.evaluation import (
+    AR_REFIT_INTERVAL,
+    SELECTION_PROTOCOL,
+    TRAIN_RATIO,
+    VALIDATION_END_RATIO,
+    VALIDATION_STEPS
+)
 from src.forecasting.rolling_forecast import rolling_forecast
 from src.training.evaluation import evaluate
 
@@ -51,8 +58,8 @@ def prepare_ar_data(df):
 
     n_raw = len(y)
 
-    train_end = int(n_raw * 0.65)
-    val_end = int(n_raw * 0.80)
+    train_end = int(n_raw * TRAIN_RATIO)
+    val_end = int(n_raw * VALIDATION_END_RATIO)
 
     y_train = y.iloc[:train_end]
     y_val = y.iloc[train_end:val_end]
@@ -144,7 +151,8 @@ def evaluate_on_validation(
     exog_test,
     window_length,
     params,
-    validation_steps=None
+    validation_steps=None,
+    refit_interval=AR_REFIT_INTERVAL
 ):
     config = ARExperimentConfig(
         params=params,
@@ -177,7 +185,8 @@ def evaluate_on_validation(
         test=y_val_eval,
         config=config,
         exog_train=model_exog_train,
-        exog_test=model_exog_val
+        exog_test=model_exog_val,
+        refit_interval=refit_interval
     )
 
     mae, rmse, mape, smape = evaluate(
@@ -202,6 +211,11 @@ def evaluate_on_validation(
         "max_iter": config.MAX_ITER,
         "enforce_stationarity": config.ENFORCE_STATIONARITY,
         "enforce_invertibility": config.ENFORCE_INVERTIBILITY,
+        "selection_protocol": SELECTION_PROTOCOL,
+        "validation_start": y_val_eval.index[0],
+        "validation_end": y_val_eval.index[-1],
+        "validation_steps": len(y_val_eval),
+        "validation_refit_interval": refit_interval,
         "val_mae": mae,
         "val_rmse": rmse,
         "val_mape": mape,
@@ -215,7 +229,8 @@ def tune_ar_model(
     df,
     param_grid,
     window_lengths,
-    validation_steps=None
+    validation_steps=VALIDATION_STEPS,
+    refit_interval=AR_REFIT_INTERVAL
 ):
     y_train, y_val, y_test, exog_train, exog_val, exog_test = prepare_ar_data(
         df
@@ -243,7 +258,8 @@ def tune_ar_model(
                     exog_test=exog_test,
                     window_length=window_length,
                     params=params,
-                    validation_steps=validation_steps
+                    validation_steps=validation_steps,
+                    refit_interval=refit_interval
                 )
 
             except Exception as e:
@@ -264,6 +280,19 @@ def tune_ar_model(
                     "enforce_invertibility": params.get(
                         "enforce_invertibility"
                     ),
+                    "selection_protocol": SELECTION_PROTOCOL,
+                    "validation_start": y_val.index[0],
+                    "validation_end": (
+                        y_val.iloc[:validation_steps].index[-1]
+                        if validation_steps is not None
+                        else y_val.index[-1]
+                    ),
+                    "validation_steps": (
+                        min(validation_steps, len(y_val))
+                        if validation_steps is not None
+                        else len(y_val)
+                    ),
+                    "validation_refit_interval": refit_interval,
                     "val_mae": np.nan,
                     "val_rmse": np.nan,
                     "val_mape": np.nan,

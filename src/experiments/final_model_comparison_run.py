@@ -2,19 +2,24 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.configs.evaluation import (
+    AR_REFIT_INTERVAL,
+    SELECTION_PROTOCOL,
+    TEST_STEPS,
+    VALIDATION_END_RATIO,
+    VALIDATION_STEPS
+)
 from src.data.loader import load_dataset
 from src.experiments.ar_parameter_tuning_run import get_ar_model_builder
 from src.experiments.constants import DATA_FILE_PATH
 from src.experiments.parameter_tuning_run import get_model, prepare_dataframe
-from src.parameter_tuning.ar_parameter_grid import AR_TEST_STEPS
 from src.parameter_tuning.ar_tuner import final_test as final_ar_test
 from src.parameter_tuning.plots import plot_real_vs_predicted
 from src.parameter_tuning.tuner import final_test as final_neural_test
 
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
-FINAL_TEST_STEPS = AR_TEST_STEPS
-AR_REFIT_INTERVAL = 0
+FINAL_TEST_STEPS = TEST_STEPS
 
 NEURAL_MODELS = [
     "lstm",
@@ -28,6 +33,61 @@ AR_MODELS = [
     "sarimax"
 ]
 
+PROTOCOL_COLUMNS = {
+    "selection_protocol",
+    "validation_start",
+    "validation_end",
+    "validation_steps",
+    "validation_refit_interval"
+}
+
+
+def validate_tuning_protocol(
+    results_df,
+    path,
+    autoregressive
+):
+    missing_columns = PROTOCOL_COLUMNS.difference(
+        results_df.columns
+    )
+
+    if missing_columns:
+        raise RuntimeError(
+            f"stale tuning results in {path}. Missing protocol columns: "
+            f"{sorted(missing_columns)}. Rerun parameter tuning first."
+        )
+
+    protocols = set(
+        results_df["selection_protocol"].dropna().astype(str)
+    )
+
+    if protocols != {SELECTION_PROTOCOL}:
+        raise RuntimeError(
+            f"incompatible selection protocol in {path}: {protocols}. "
+            "Rerun parameter tuning first."
+        )
+
+    validation_lengths = set(
+        results_df["validation_steps"].dropna().astype(int)
+    )
+
+    if validation_lengths != {VALIDATION_STEPS}:
+        raise RuntimeError(
+            f"incompatible validation length in {path}: "
+            f"{validation_lengths}. Expected {VALIDATION_STEPS}."
+        )
+
+    if autoregressive:
+        refit_intervals = set(
+            results_df["validation_refit_interval"].dropna().astype(int)
+        )
+
+        if refit_intervals != {AR_REFIT_INTERVAL}:
+            raise RuntimeError(
+                f"incompatible AR refit interval in {path}: "
+                f"{refit_intervals}. Expected {AR_REFIT_INTERVAL}."
+            )
+
 
 def load_best_setting(model_name, autoregressive=False):
     suffix = "_ar_best_per_l.csv" if autoregressive else "_best_per_l.csv"
@@ -39,6 +99,12 @@ def load_best_setting(model_name, autoregressive=False):
         )
 
     results_df = pd.read_csv(path)
+    validate_tuning_protocol(
+        results_df=results_df,
+        path=path,
+        autoregressive=autoregressive
+    )
+
     valid_results = results_df.dropna(
         subset=["val_mae"]
     )
@@ -55,6 +121,7 @@ def load_best_setting(model_name, autoregressive=False):
 
 def result_summary(
     final_result,
+    best_setting,
     model_family,
     test_start,
     test_end
@@ -67,6 +134,13 @@ def result_summary(
         "test_end": test_end,
         "test_steps": len(final_result["y_test"]),
         "training_data": "train_only",
+        "selection_protocol": SELECTION_PROTOCOL,
+        "validation_start": best_setting["validation_start"],
+        "validation_end": best_setting["validation_end"],
+        "validation_steps": VALIDATION_STEPS,
+        "validation_refit_interval": best_setting[
+            "validation_refit_interval"
+        ],
         "ar_refit_interval": (
             AR_REFIT_INTERVAL
             if model_family == "autoregressive"
@@ -141,7 +215,7 @@ def main():
     )
 
     n_raw = len(df_proc)
-    test_start_index = int(n_raw * 0.80)
+    test_start_index = int(n_raw * VALIDATION_END_RATIO)
     test_df = df_proc.iloc[
         test_start_index:test_start_index + FINAL_TEST_STEPS
     ]
@@ -171,11 +245,13 @@ def main():
             df_proc=df_proc,
             best_setting=best_setting,
             test_steps=FINAL_TEST_STEPS,
-            align_test_start=True
+            align_test_start=True,
+            validation_steps=VALIDATION_STEPS
         )
 
         summary = result_summary(
             final_result=final_result,
+            best_setting=best_setting,
             model_family="neural",
             test_start=test_start,
             test_end=test_end
@@ -212,6 +288,7 @@ def main():
 
         summary = result_summary(
             final_result=final_result,
+            best_setting=best_setting,
             model_family="autoregressive",
             test_start=test_start,
             test_end=test_end

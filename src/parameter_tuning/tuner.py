@@ -4,6 +4,12 @@ import pandas as pd
 
 from sklearn.preprocessing import MinMaxScaler
 
+from src.configs.evaluation import (
+    SELECTION_PROTOCOL,
+    TRAIN_RATIO,
+    VALIDATION_END_RATIO,
+    VALIDATION_STEPS
+)
 from src.data.sequences import create_sequences
 from src.configs.config import ExperimentConfig
 from src.training.trainer import train_model
@@ -20,11 +26,15 @@ def generate_param_combinations(param_grid):
         yield dict(zip(keys, combination))
 
 
-def prepare_data_for_l(df_proc, seq_len):
+def prepare_data_for_l(
+    df_proc,
+    seq_len,
+    validation_steps=None
+):
     n_raw = len(df_proc)
 
-    train_end = int(n_raw * 0.65)
-    val_end = int(n_raw * 0.80)
+    train_end = int(n_raw * TRAIN_RATIO)
+    val_end = int(n_raw * VALIDATION_END_RATIO)
 
     train_df = df_proc.iloc[:train_end]
     val_df = df_proc.iloc[train_end:val_end]
@@ -33,8 +43,35 @@ def prepare_data_for_l(df_proc, seq_len):
     scaler = MinMaxScaler()
 
     train_scaled = scaler.fit_transform(train_df)
-    val_scaled = scaler.transform(val_df)
     test_scaled = scaler.transform(test_df)
+
+    if validation_steps is not None:
+        if validation_steps <= 0:
+            raise ValueError(
+                "validation_steps must be a positive integer"
+            )
+
+        if validation_steps > len(val_df):
+            raise ValueError(
+                f"requested {validation_steps} validation steps, "
+                f"but only {len(val_df)} are available"
+            )
+
+        val_context = pd.concat(
+            [
+                train_df.tail(seq_len),
+                val_df.iloc[:validation_steps]
+            ],
+            axis=0
+        )
+
+        val_scaled = scaler.transform(
+            val_context
+        )
+    else:
+        val_scaled = scaler.transform(
+            val_df
+        )
 
     X_train, y_train = create_sequences(train_scaled, seq_len)
     X_val, y_val = create_sequences(val_scaled, seq_len)
@@ -48,7 +85,8 @@ def evaluate_on_validation(
     get_model,
     df_proc,
     seq_len,
-    params
+    params,
+    validation_steps=VALIDATION_STEPS
 ):
     config = ExperimentConfig(
         params=params,
@@ -57,7 +95,8 @@ def evaluate_on_validation(
 
     X_train, y_train, X_val, y_val, X_test, y_test, scaler = prepare_data_for_l(
         df_proc=df_proc,
-        seq_len=seq_len
+        seq_len=seq_len,
+        validation_steps=validation_steps
     )
 
     model = get_model(
@@ -104,6 +143,18 @@ def evaluate_on_validation(
         y_val_pred_rescaled
     )
 
+    n_raw = len(df_proc)
+    train_end = int(n_raw * TRAIN_RATIO)
+
+    if validation_steps is None:
+        validation_start_index = train_end + seq_len
+    else:
+        validation_start_index = train_end
+
+    validation_index = df_proc.index[
+        validation_start_index:validation_start_index + len(y_val)
+    ]
+
     return {
         "model": model_name,
         "seq_len": seq_len,
@@ -114,12 +165,26 @@ def evaluate_on_validation(
         "batch_size": config.BATCH_SIZE,
         "epochs": config.EPOCHS,
         "patience": config.PATIENCE,
+        "selection_protocol": SELECTION_PROTOCOL,
+        "validation_start": validation_index[0],
+        "validation_end": validation_index[-1],
+        "validation_steps": len(y_val),
+        "validation_refit_interval": None,
         "val_mae": mae,
         "val_rmse": rmse,
         "val_mape": mape,
         "val_smape": smape
     }
-def tune_model(model_name, get_model, df_proc, param_grid, seq_lengths):
+
+
+def tune_model(
+    model_name,
+    get_model,
+    df_proc,
+    param_grid,
+    seq_lengths,
+    validation_steps=VALIDATION_STEPS
+):
     all_results = []
     best_per_l = []
 
@@ -134,7 +199,8 @@ def tune_model(model_name, get_model, df_proc, param_grid, seq_lengths):
                 get_model=get_model,
                 df_proc=df_proc,
                 seq_len=seq_len,
-                params=params
+                params=params,
+                validation_steps=validation_steps
             )
 
             all_results.append(result)
@@ -163,7 +229,8 @@ def final_test(
     df_proc,
     best_setting,
     test_steps=None,
-    align_test_start=False
+    align_test_start=False,
+    validation_steps=VALIDATION_STEPS
 ):
     seq_len = best_setting["seq_len"]
 
@@ -184,12 +251,13 @@ def final_test(
 
     X_train, y_train, X_val, y_val, X_test, y_test, scaler = prepare_data_for_l(
         df_proc=df_proc,
-        seq_len=seq_len
+        seq_len=seq_len,
+        validation_steps=validation_steps
     )
 
     if align_test_start:
         n_raw = len(df_proc)
-        val_end = int(n_raw * 0.80)
+        val_end = int(n_raw * VALIDATION_END_RATIO)
 
         test_df = df_proc.iloc[val_end:]
 

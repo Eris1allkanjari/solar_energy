@@ -1,6 +1,8 @@
-import os
+from pathlib import Path
+
 import pandas as pd
 
+from src.configs.evaluation import AR_REFIT_INTERVAL, VALIDATION_STEPS
 from src.data.loader import load_dataset
 from src.experiments.constants import DATA_FILE_PATH
 
@@ -26,6 +28,9 @@ from src.parameter_tuning.plots import (
     plot_mae_by_l,
     plot_real_vs_predicted
 )
+
+
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 
 def get_ar_model_builder(model_name):
@@ -68,8 +73,8 @@ def run_tuning_for_ar_model(model_name, df):
         validation_steps=AR_VALIDATION_STEPS
     )
 
-    os.makedirs(
-        "results",
+    RESULTS_DIR.mkdir(
+        parents=True,
         exist_ok=True
     )
 
@@ -78,7 +83,7 @@ def run_tuning_for_ar_model(model_name, df):
     )
 
     all_results_path = (
-        f"results/{model_name}_ar_all_tuning_results.csv"
+        RESULTS_DIR / f"{model_name}_ar_all_tuning_results.csv"
     )
 
     all_results_df.to_csv(
@@ -91,7 +96,7 @@ def run_tuning_for_ar_model(model_name, df):
     )
 
     best_per_l_path = (
-        f"results/{model_name}_ar_best_per_l.csv"
+        RESULTS_DIR / f"{model_name}_ar_best_per_l.csv"
     )
 
     best_per_l_df.to_csv(
@@ -107,7 +112,9 @@ def run_tuning_for_ar_model(model_name, df):
 
     plot_mae_by_l(
         best_per_l,
-        output_path=f"results/{model_name}_ar_mae_by_l.png"
+        output_path=str(
+            RESULTS_DIR / f"{model_name}_ar_mae_by_l.png"
+        )
     )
 
     best_setting = select_best_l(
@@ -127,7 +134,9 @@ def run_tuning_for_ar_model(model_name, df):
         build_model=build_model,
         df=df,
         best_setting=best_setting,
-        test_steps=AR_TEST_STEPS
+        test_steps=AR_TEST_STEPS,
+        include_validation_in_training=False,
+        refit_interval=AR_REFIT_INTERVAL
     )
 
     final_result_df = pd.DataFrame(
@@ -139,6 +148,10 @@ def run_tuning_for_ar_model(model_name, df):
                 "seasonal_order": final_result["seasonal_order"],
                 "exog_features": final_result["exog_features"],
                 "max_iter": final_result["max_iter"],
+                "validation_steps": VALIDATION_STEPS,
+                "test_steps": len(final_result["y_test"]),
+                "training_data": "train_only",
+                "ar_refit_interval": AR_REFIT_INTERVAL,
                 "mae": final_result["mae"],
                 "rmse": final_result["rmse"],
                 "mape": final_result["mape"],
@@ -148,7 +161,7 @@ def run_tuning_for_ar_model(model_name, df):
     )
 
     final_result_path = (
-        f"results/{model_name}_ar_final_test_result.csv"
+        RESULTS_DIR / f"{model_name}_ar_final_test_result.csv"
     )
 
     final_result_df.to_csv(
@@ -159,7 +172,9 @@ def run_tuning_for_ar_model(model_name, df):
     plot_real_vs_predicted(
         y_true=final_result["y_test"],
         y_pred=final_result["y_pred"],
-        output_path=f"results/{model_name}_ar_actual_vs_predicted.png",
+        output_path=str(
+            RESULTS_DIR / f"{model_name}_ar_actual_vs_predicted.png"
+        ),
         title=(
             f"actual vs predicted for {model_name}, "
             f"L={final_result['seq_len']}"
@@ -196,9 +211,9 @@ def main():
     )
 
     models = [
-        # "arima",
-        # "sarima",
-        # "arimax",
+        "arima",
+        "sarima",
+        "arimax",
         "sarimax"
     ]
 
@@ -234,13 +249,13 @@ def main():
     )
 
     summary_df.to_csv(
-        "results/ar_tuning_summary.csv",
+        RESULTS_DIR / "ar_tuning_summary.csv",
         index=False
     )
 
     print(
         "\nsaved autoregressive tuning summary to "
-        "results/ar_tuning_summary.csv"
+        f"{RESULTS_DIR / 'ar_tuning_summary.csv'}"
     )
 
 
