@@ -12,6 +12,10 @@ from src.configs.evaluation import (
     VALIDATION_STEPS
 )
 from src.forecasting.rolling_forecast import rolling_forecast
+from src.parameter_tuning.selection import (
+    calculate_monthly_validation_metrics,
+    select_robust_candidate
+)
 from src.training.evaluation import evaluate
 
 
@@ -193,6 +197,11 @@ def evaluate_on_validation(
         y_val_eval,
         predictions
     )
+    block_metrics = calculate_monthly_validation_metrics(
+        index=y_val_eval.index,
+        y_true=y_val_eval,
+        y_pred=predictions
+    )
 
     return {
         "model": model_name,
@@ -216,6 +225,7 @@ def evaluate_on_validation(
         "validation_end": y_val_eval.index[-1],
         "validation_steps": len(y_val_eval),
         "validation_refit_interval": refit_interval,
+        **block_metrics,
         "val_mae": mae,
         "val_rmse": rmse,
         "val_mape": mape,
@@ -244,7 +254,7 @@ def tune_ar_model(
             f"\nsearching {model_name} with L={window_length}"
         )
 
-        best_result_for_l = None
+        results_for_l = []
 
         for params in generate_param_combinations(param_grid):
             try:
@@ -293,6 +303,11 @@ def tune_ar_model(
                         else len(y_val)
                     ),
                     "validation_refit_interval": refit_interval,
+                    "validation_blocks": np.nan,
+                    "val_block_mae_mean": np.nan,
+                    "val_block_mae_std": np.nan,
+                    "val_block_rmse_mean": np.nan,
+                    "val_block_rmse_std": np.nan,
                     "val_mae": np.nan,
                     "val_rmse": np.nan,
                     "val_mape": np.nan,
@@ -301,26 +316,23 @@ def tune_ar_model(
                 }
 
             all_results.append(result)
+            results_for_l.append(result)
 
-            if np.isnan(result["val_mae"]):
-                continue
-
-            if (
-                best_result_for_l is None
-                or result["val_mae"] < best_result_for_l["val_mae"]
-            ):
-                best_result_for_l = result
-
-        if best_result_for_l is not None:
-            best_per_l.append(best_result_for_l)
+        try:
+            best_per_l.append(
+                select_robust_candidate(
+                    results_for_l
+                )
+            )
+        except ValueError:
+            pass
 
     return all_results, best_per_l
 
 
 def select_best_l(best_per_l):
-    return min(
-        best_per_l,
-        key=lambda result: result["val_mae"]
+    return select_robust_candidate(
+        best_per_l
     )
 
 
@@ -384,6 +396,7 @@ def final_test(
     df,
     best_setting,
     test_steps=None,
+    test_offset=0,
     include_validation_in_training=True,
     refit_interval=1
 ):
@@ -404,6 +417,12 @@ def final_test(
         window_length=window_length
     )
 
+    pretest_context = y_test.iloc[:test_offset]
+    y_test_eval = y_test.iloc[test_offset:]
+
+    if test_steps is not None:
+        y_test_eval = y_test_eval.iloc[:test_steps]
+
     if include_validation_in_training:
         y_train_final = pd.concat(
             [y_train, y_val],
@@ -413,24 +432,56 @@ def final_test(
             [exog_train, exog_val],
             axis=0
         )
+        state_context = (
+            pretest_context
+            if len(pretest_context)
+            else None
+        )
     else:
         y_train_final = y_train
         exog_train_final = exog_train
-
-    y_test_eval = y_test
-
-    if test_steps is not None:
-        y_test_eval = y_test_eval.iloc[:test_steps]
+        state_context = pd.concat(
+            [y_val, pretest_context],
+            axis=0
+        )
 
     model_exog_train = None
+    model_exog_context = None
     model_exog_test = None
 
     if uses_exog(params):
-        model_exog_train, model_exog_test = scale_exog_train_test(
-            exog_train=exog_train_final,
-            exog_test=exog_test,
-            exog_features=config.EXOG_FEATURES
-        )
+        if include_validation_in_training:
+            if test_offset:
+                (
+                    model_exog_train,
+                    model_exog_context,
+                    model_exog_test
+                ) = scale_exog_splits(
+                    exog_train=exog_train_final,
+                    exog_val=exog_test.iloc[:test_offset],
+                    exog_test=exog_test,
+                    exog_features=config.EXOG_FEATURES
+                )
+            else:
+                model_exog_train, model_exog_test = scale_exog_train_test(
+                    exog_train=exog_train_final,
+                    exog_test=exog_test,
+                    exog_features=config.EXOG_FEATURES
+                )
+        else:
+            (
+                model_exog_train,
+                model_exog_context,
+                model_exog_test
+            ) = scale_exog_splits(
+                exog_train=exog_train,
+                exog_val=pd.concat(
+                    [exog_val, exog_test.iloc[:test_offset]],
+                    axis=0
+                ),
+                exog_test=exog_test,
+                exog_features=config.EXOG_FEATURES
+            )
 
         model_exog_test = model_exog_test.loc[
             y_test_eval.index
@@ -443,7 +494,9 @@ def final_test(
         config=config,
         exog_train=model_exog_train,
         exog_test=model_exog_test,
-        refit_interval=refit_interval
+        refit_interval=refit_interval,
+        context=state_context,
+        exog_context=model_exog_context
     )
 
     predictions = np.clip(
@@ -472,6 +525,16 @@ def final_test(
             else None
         ),
         "max_iter": config.MAX_ITER,
+        "training_data": (
+            "train_validation"
+            if include_validation_in_training
+            else "train_only"
+        ),
+        "state_context_steps": (
+            len(state_context)
+            if state_context is not None
+            else 0
+        ),
         "mae": mae,
         "rmse": rmse,
         "mape": mape,

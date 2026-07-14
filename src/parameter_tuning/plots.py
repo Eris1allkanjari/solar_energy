@@ -8,6 +8,11 @@ def plot_mae_by_l(best_per_l, output_path=None):
     # plot best validation mae for each sequence length
 
     results_df = pd.DataFrame(best_per_l)
+    metric = (
+        "val_block_mae_mean"
+        if "val_block_mae_mean" in results_df.columns
+        else "val_mae"
+    )
 
     results_df = results_df.sort_values(
         "seq_len"
@@ -17,13 +22,13 @@ def plot_mae_by_l(best_per_l, output_path=None):
 
     plt.plot(
         results_df["seq_len"],
-        results_df["val_mae"],
+        results_df[metric],
         marker="o"
     )
 
     plt.xlabel("input window length L")
-    plt.ylabel("validation MAE")
-    plt.title("validation MAE by input window length")
+    plt.ylabel(metric)
+    plt.title(f"{metric} by input window length")
     plt.grid(True)
     plt.tight_layout()
 

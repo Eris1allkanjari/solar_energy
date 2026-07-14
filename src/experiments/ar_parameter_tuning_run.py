@@ -1,8 +1,14 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
 
-from src.configs.evaluation import AR_REFIT_INTERVAL, VALIDATION_STEPS
+from src.configs.evaluation import (
+    AR_REFIT_INTERVAL,
+    SELECTION_PROTOCOL,
+    TEST_OFFSET,
+    VALIDATION_STEPS
+)
 from src.data.loader import load_dataset
 from src.experiments.constants import DATA_FILE_PATH
 
@@ -15,7 +21,7 @@ from src.parameter_tuning.ar_parameter_grid import (
     AR_HYPERPARAMETER_GRIDS,
     AR_TEST_STEPS,
     AR_VALIDATION_STEPS,
-    AR_WINDOW_LENGTHS
+    AR_WINDOW_LENGTHS_BY_MODEL
 )
 
 from src.parameter_tuning.ar_tuner import (
@@ -31,6 +37,19 @@ from src.parameter_tuning.plots import (
 
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Tune autoregressive forecasting models."
+    )
+    parser.add_argument(
+        "--run-final-test",
+        action="store_true",
+        help="Run the selected model on the final test after tuning."
+    )
+
+    return parser.parse_args()
 
 
 def get_ar_model_builder(model_name):
@@ -51,7 +70,11 @@ def get_ar_model_builder(model_name):
     )
 
 
-def run_tuning_for_ar_model(model_name, df):
+def run_tuning_for_ar_model(
+    model_name,
+    df,
+    run_final_test=False
+):
     print(
         f"\nstarting autoregressive tuning for {model_name}"
     )
@@ -69,7 +92,7 @@ def run_tuning_for_ar_model(model_name, df):
         build_model=build_model,
         df=df,
         param_grid=param_grid,
-        window_lengths=AR_WINDOW_LENGTHS,
+        window_lengths=AR_WINDOW_LENGTHS_BY_MODEL[model_name],
         validation_steps=AR_VALIDATION_STEPS
     )
 
@@ -129,13 +152,25 @@ def run_tuning_for_ar_model(model_name, df):
         best_setting
     )
 
+    if not run_final_test:
+        print(
+            "final test skipped; use final_model_comparison_run after "
+            "all model settings are frozen"
+        )
+        return {
+            "model": model_name,
+            "best_setting": best_setting,
+            "final_result": None
+        }
+
     final_result = final_test(
         model_name=model_name,
         build_model=build_model,
         df=df,
         best_setting=best_setting,
         test_steps=AR_TEST_STEPS,
-        include_validation_in_training=False,
+        test_offset=TEST_OFFSET,
+        include_validation_in_training=True,
         refit_interval=AR_REFIT_INTERVAL
     )
 
@@ -149,9 +184,14 @@ def run_tuning_for_ar_model(model_name, df):
                 "exog_features": final_result["exog_features"],
                 "max_iter": final_result["max_iter"],
                 "validation_steps": VALIDATION_STEPS,
+                "selection_protocol": SELECTION_PROTOCOL,
+                "test_offset": TEST_OFFSET,
                 "test_steps": len(final_result["y_test"]),
-                "training_data": "train_only",
+                "training_data": final_result["training_data"],
                 "ar_refit_interval": AR_REFIT_INTERVAL,
+                "state_context_steps": final_result[
+                    "state_context_steps"
+                ],
                 "mae": final_result["mae"],
                 "rmse": final_result["rmse"],
                 "mape": final_result["mape"],
@@ -206,6 +246,8 @@ def run_tuning_for_ar_model(model_name, df):
 
 
 def main():
+    args = parse_args()
+
     df = load_dataset(
         DATA_FILE_PATH
     )
@@ -222,12 +264,16 @@ def main():
     for model_name in models:
         result = run_tuning_for_ar_model(
             model_name=model_name,
-            df=df
+            df=df,
+            run_final_test=args.run_final_test
         )
 
         final_result = result[
             "final_result"
         ]
+
+        if final_result is None:
+            continue
 
         summary_results.append(
             {
@@ -244,19 +290,20 @@ def main():
             }
         )
 
-    summary_df = pd.DataFrame(
-        summary_results
-    )
+    if summary_results:
+        summary_df = pd.DataFrame(
+            summary_results
+        )
 
-    summary_df.to_csv(
-        RESULTS_DIR / "ar_tuning_summary.csv",
-        index=False
-    )
+        summary_df.to_csv(
+            RESULTS_DIR / "ar_tuning_summary.csv",
+            index=False
+        )
 
-    print(
-        "\nsaved autoregressive tuning summary to "
-        f"{RESULTS_DIR / 'ar_tuning_summary.csv'}"
-    )
+        print(
+            "\nsaved autoregressive tuning summary to "
+            f"{RESULTS_DIR / 'ar_tuning_summary.csv'}"
+        )
 
 
 if __name__ == "__main__":

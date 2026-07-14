@@ -1,4 +1,5 @@
 from src.configs.evaluation import (
+    MIN_SEASONAL_WINDOW,
     TEST_STEPS as AR_TEST_STEPS,
     VALIDATION_STEPS as AR_VALIDATION_STEPS
 )
@@ -10,6 +11,21 @@ AR_WINDOW_LENGTHS = [
     24 * 30,
     24 * 60
 ]
+
+AR_WINDOW_LENGTHS_BY_MODEL = {
+    "arima": AR_WINDOW_LENGTHS,
+    "arimax": AR_WINDOW_LENGTHS,
+    "sarima": [
+        window_length
+        for window_length in AR_WINDOW_LENGTHS
+        if window_length >= MIN_SEASONAL_WINDOW
+    ],
+    "sarimax": [
+        window_length
+        for window_length in AR_WINDOW_LENGTHS
+        if window_length >= MIN_SEASONAL_WINDOW
+    ]
+}
 
 AR_HYPERPARAMETER_GRIDS = {
     "arima": {

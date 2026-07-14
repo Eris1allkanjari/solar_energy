@@ -12,6 +12,10 @@ class BaseConfig:
     BATCH_SIZE = 64
 
     PATIENCE = 5
+    LOSS = "huber"
+    HUBER_DELTA = 0.1
+    WEIGHT_DECAY = 1e-5
+    GRADIENT_CLIP = 1.0
 
 
 class SmallModelConfig(BaseConfig):
@@ -38,3 +42,7 @@ class ExperimentConfig:
         self.BATCH_SIZE = params["batch_size"]
         self.EPOCHS = params["epochs"]
         self.PATIENCE = params["patience"]
+        self.LOSS = params.get("loss", "huber")
+        self.HUBER_DELTA = params.get("huber_delta", 0.1)
+        self.WEIGHT_DECAY = params.get("weight_decay", 1e-5)
+        self.GRADIENT_CLIP = params.get("gradient_clip", 1.0)

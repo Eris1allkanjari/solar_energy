@@ -1,8 +1,14 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
 
-from src.configs.evaluation import TEST_STEPS, VALIDATION_STEPS
+from src.configs.evaluation import (
+    NEURAL_SELECTION_PROTOCOL,
+    TEST_OFFSET,
+    TEST_STEPS,
+    VALIDATION_STEPS
+)
 from src.data.loader import load_dataset
 from src.data.preprocessing import (
     add_time_features,
@@ -34,6 +40,19 @@ from src.parameter_tuning.plots import (
 
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Tune neural forecasting models."
+    )
+    parser.add_argument(
+        "--run-final-test",
+        action="store_true",
+        help="Run the selected model on the final test after tuning."
+    )
+
+    return parser.parse_args()
 
 
 def get_model(model_name, input_shape, config):
@@ -78,7 +97,11 @@ def prepare_dataframe(df):
     return df_proc
 
 
-def run_tuning_for_model(model_name, df_proc):
+def run_tuning_for_model(
+    model_name,
+    df_proc,
+    run_final_test=False
+):
     # run hyperparameter tuning for one model
 
     print(
@@ -155,6 +178,17 @@ def run_tuning_for_model(model_name, df_proc):
         best_setting
     )
 
+    if not run_final_test:
+        print(
+            "final test skipped; use final_model_comparison_run after "
+            "all model settings are frozen"
+        )
+        return {
+            "model": model_name,
+            "best_setting": best_setting,
+            "final_result": None
+        }
+
     # final test using only best l and best hyperparameters
 
     final_result = final_test(
@@ -163,6 +197,7 @@ def run_tuning_for_model(model_name, df_proc):
         df_proc=df_proc,
         best_setting=best_setting,
         test_steps=TEST_STEPS,
+        test_offset=TEST_OFFSET,
         align_test_start=True,
         validation_steps=VALIDATION_STEPS
     )
@@ -179,13 +214,29 @@ def run_tuning_for_model(model_name, df_proc):
                 "dropout": final_result["dropout"],
                 "learning_rate": final_result["learning_rate"],
                 "batch_size": final_result["batch_size"],
+                "loss": final_result["loss"],
+                "huber_delta": final_result["huber_delta"],
+                "weight_decay": final_result["weight_decay"],
+                "gradient_clip": final_result["gradient_clip"],
+                "shuffle_training": final_result["shuffle_training"],
+                "seeds": final_result["seeds"],
+                "seed_count": final_result["seed_count"],
+                "refit_epochs": final_result["refit_epochs"],
+                "mae_by_seed": final_result["mae_by_seed"],
+                "rmse_by_seed": final_result["rmse_by_seed"],
                 "validation_steps": VALIDATION_STEPS,
+                "selection_protocol": NEURAL_SELECTION_PROTOCOL,
+                "test_offset": TEST_OFFSET,
                 "test_steps": len(final_result["y_test"]),
-                "training_data": "train_only",
+                "training_data": final_result["training_data"],
                 "mae": final_result["mae"],
+                "mae_std": final_result["mae_std"],
                 "rmse": final_result["rmse"],
+                "rmse_std": final_result["rmse_std"],
                 "mape": final_result["mape"],
-                "smape": final_result["smape"]
+                "mape_std": final_result["mape_std"],
+                "smape": final_result["smape"],
+                "smape_std": final_result["smape_std"]
             }
         ]
     )
@@ -235,6 +286,8 @@ def run_tuning_for_model(model_name, df_proc):
 
 
 def main():
+    args = parse_args()
+
     # load dataset
 
     df = load_dataset(
@@ -261,12 +314,16 @@ def main():
 
         result = run_tuning_for_model(
             model_name=model_name,
-            df_proc=df_proc
+            df_proc=df_proc,
+            run_final_test=args.run_final_test
         )
 
         final_result = result[
             "final_result"
         ]
+
+        if final_result is None:
+            continue
 
         summary_results.append(
             {
@@ -278,7 +335,9 @@ def main():
                 "learning_rate": final_result["learning_rate"],
                 "batch_size": final_result["batch_size"],
                 "mae": final_result["mae"],
+                "mae_std": final_result["mae_std"],
                 "rmse": final_result["rmse"],
+                "rmse_std": final_result["rmse_std"],
                 "mape": final_result["mape"],
                 "smape": final_result["smape"]
             }
@@ -286,19 +345,20 @@ def main():
 
     # save model comparison summary
 
-    summary_df = pd.DataFrame(
-        summary_results
-    )
+    if summary_results:
+        summary_df = pd.DataFrame(
+            summary_results
+        )
 
-    summary_df.to_csv(
-        RESULTS_DIR / "tuning_summary.csv",
-        index=False
-    )
+        summary_df.to_csv(
+            RESULTS_DIR / "tuning_summary.csv",
+            index=False
+        )
 
-    print(
-        "\nsaved tuning summary to "
-        f"{RESULTS_DIR / 'tuning_summary.csv'}"
-    )
+        print(
+            "\nsaved tuning summary to "
+            f"{RESULTS_DIR / 'tuning_summary.csv'}"
+        )
 
 
 if __name__ == "__main__":

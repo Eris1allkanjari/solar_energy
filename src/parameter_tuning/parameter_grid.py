@@ -8,7 +8,11 @@ HYPERPARAMETER_GRIDS = {
         "learning_rate": [0.001],
         "batch_size": [64],
         "epochs": [30],
-        "patience": [5]
+        "patience": [5],
+        "loss": ["huber"],
+        "huber_delta": [0.1],
+        "weight_decay": [1e-5],
+        "gradient_clip": [1.0]
     },
 
     "gru": {
@@ -18,7 +22,11 @@ HYPERPARAMETER_GRIDS = {
         "learning_rate": [0.001],
         "batch_size": [64],
         "epochs": [30],
-        "patience": [5]
+        "patience": [5],
+        "loss": ["huber"],
+        "huber_delta": [0.1],
+        "weight_decay": [1e-5],
+        "gradient_clip": [1.0]
     },
 
     "attention": {
@@ -28,6 +36,10 @@ HYPERPARAMETER_GRIDS = {
         "learning_rate": [0.001],
         "batch_size": [64],
         "epochs": [40],
-        "patience": [5]
+        "patience": [5],
+        "loss": ["huber"],
+        "huber_delta": [0.1],
+        "weight_decay": [1e-5],
+        "gradient_clip": [1.0]
     }
 }
