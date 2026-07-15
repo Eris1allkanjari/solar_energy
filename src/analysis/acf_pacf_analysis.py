@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 
 from statsmodels.graphics.tsaplots import (
@@ -8,10 +10,14 @@ from statsmodels.graphics.tsaplots import (
 from src.data.loader import load_dataset
 from src.experiments.constants import DATA_FILE_PATH
 
+RESULTS_DIR = Path(__file__).resolve().parents[1] / "experiments" / "results"
+
 
 def analyze_acf_pacf(
     series,
-    lags=48
+    lags=48,
+    output_path=None,
+    show=False
 ):
 
     fig, axes = plt.subplots(
@@ -46,7 +52,13 @@ def analyze_acf_pacf(
 
     plt.tight_layout()
 
-    plt.show()
+    if output_path is not None:
+        fig.savefig(output_path, dpi=300, bbox_inches="tight")
+
+    if show:
+        plt.show()
+
+    plt.close(fig)
 
 
 def main():
@@ -67,10 +79,16 @@ def main():
 
     # analyze acf pacf
 
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = RESULTS_DIR / "acf_pacf.png"
+
     analyze_acf_pacf(
         y,
-        lags=48
+        lags=168,
+        output_path=output_path
     )
+
+    print(f"saved plot to {output_path}")
 
 
 if __name__ == "__main__":

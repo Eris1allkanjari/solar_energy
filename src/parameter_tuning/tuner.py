@@ -306,17 +306,8 @@ def parse_seeds(value):
     )
 
 
-def final_test(
-    model_name,
-    get_model,
-    df_proc,
-    best_setting,
-    test_steps=None,
-    test_offset=0
-):
-    seq_len = int(best_setting["seq_len"])
-
-    params = {
+def params_from_best_setting(best_setting):
+    return {
         "hidden_units_1": int(best_setting["hidden_units_1"]),
         "hidden_units_2": int(best_setting["hidden_units_2"]),
         "dropout": float(best_setting["dropout"]),
@@ -329,6 +320,19 @@ def final_test(
         "weight_decay": float(best_setting.get("weight_decay", 1e-5)),
         "gradient_clip": float(best_setting.get("gradient_clip", 1.0))
     }
+
+
+def final_test(
+    model_name,
+    get_model,
+    df_proc,
+    best_setting,
+    test_steps=None,
+    test_offset=0
+):
+    seq_len = int(best_setting["seq_len"])
+
+    params = params_from_best_setting(best_setting)
 
     config = ExperimentConfig(
         params=params,

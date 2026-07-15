@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -7,6 +8,7 @@ from src.data.preprocessing import add_time_features, clean_data, select_feature
 from src.experiments.constants import DATA_FILE_PATH
 from src.models.rnn.gru import build_gru
 from src.models.rnn.lstm import build_lstm
+from src.models.rnn.lstm_attention import build_lstm_attention
 from src.parameter_tuning.parameter_grid import (
     HYPERPARAMETER_GRIDS,
     SEQ_LENGTHS
@@ -16,6 +18,21 @@ from src.parameter_tuning.tuner import select_best_l, tune_model
 
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
+MODEL_CHOICES = ["lstm", "gru", "attention"]
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Tune recurrent forecasting models."
+    )
+    parser.add_argument(
+        "--models",
+        nargs="+",
+        choices=MODEL_CHOICES,
+        default=["lstm", "gru"],
+        help="Attention is optional and excluded from the default run."
+    )
+    return parser.parse_args()
 
 
 def get_model(model_name, input_shape, config):
@@ -27,6 +44,12 @@ def get_model(model_name, input_shape, config):
 
     if model_name == "gru":
         return build_gru(
+            input_shape=input_shape,
+            config=config
+        )
+
+    if model_name == "attention":
+        return build_lstm_attention(
             input_shape=input_shape,
             config=config
         )
@@ -109,6 +132,7 @@ def run_tuning_for_model(model_name, df_proc):
 
 
 def main():
+    args = parse_args()
     df = load_dataset(
         DATA_FILE_PATH
     )
@@ -116,7 +140,7 @@ def main():
         df
     )
 
-    for model_name in ["lstm", "gru"]:
+    for model_name in args.models:
         run_tuning_for_model(
             model_name=model_name,
             df_proc=df_proc

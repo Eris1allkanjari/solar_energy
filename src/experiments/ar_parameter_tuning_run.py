@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -18,6 +19,21 @@ from src.parameter_tuning.plots import plot_mae_by_l
 
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
+AR_MODEL_CHOICES = ["arima", "sarima", "arimax", "sarimax"]
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Tune autoregressive forecasting models."
+    )
+    parser.add_argument(
+        "--models",
+        nargs="+",
+        choices=AR_MODEL_CHOICES,
+        default=AR_MODEL_CHOICES,
+        help="Models to tune; results are saved after each model."
+    )
+    return parser.parse_args()
 
 
 def get_ar_model_builder(model_name):
@@ -104,11 +120,12 @@ def run_tuning_for_ar_model(model_name, df):
 
 
 def main():
+    args = parse_args()
     df = load_dataset(
         DATA_FILE_PATH
     )
 
-    for model_name in ["arima", "sarima", "arimax", "sarimax"]:
+    for model_name in args.models:
         run_tuning_for_ar_model(
             model_name=model_name,
             df=df

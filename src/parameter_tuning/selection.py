@@ -52,7 +52,8 @@ def calculate_monthly_validation_metrics(
 
 def select_robust_candidate(
     results,
-    mae_tolerance=SELECTION_MAE_TOLERANCE
+    mae_tolerance=SELECTION_MAE_TOLERANCE,
+    information_criterion=None
 ):
     valid_results = [
         result
@@ -77,10 +78,21 @@ def select_robust_candidate(
         if float(result[SELECTION_MAE_KEY]) <= mae_limit
     ]
 
-    return min(
-        eligible_results,
-        key=lambda result: (
-            float(result[SELECTION_RMSE_KEY]),
-            -int(result["seq_len"])
+    def selection_key(result):
+        key = []
+
+        if information_criterion is not None:
+            key.append(not bool(result.get("fit_converged", False)))
+            value = float(result.get(information_criterion, np.inf))
+            key.append(value if np.isfinite(value) else np.inf)
+
+        key.extend(
+            [
+                float(result[SELECTION_RMSE_KEY]),
+                -int(result["seq_len"])
+            ]
         )
-    )
+
+        return tuple(key)
+
+    return min(eligible_results, key=selection_key)

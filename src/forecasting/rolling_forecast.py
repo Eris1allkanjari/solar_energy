@@ -38,6 +38,16 @@ def fallback_prediction(history):
     return history[-1]
 
 
+def get_fit_diagnostics(fitted):
+    mle_retvals = getattr(fitted, "mle_retvals", {}) or {}
+
+    return {
+        "aic": float(getattr(fitted, "aic", np.nan)),
+        "bic": float(getattr(fitted, "bic", np.nan)),
+        "fit_converged": bool(mle_retvals.get("converged", True))
+    }
+
+
 def build_statistical_model(
     build_model_fn,
     history_window,
@@ -113,7 +123,8 @@ def rolling_forecast(
     exog_test=None,
     refit_interval=1,
     context=None,
-    exog_context=None
+    exog_context=None,
+    return_diagnostics=False
 ):
 
     if refit_interval is not None and refit_interval < 0:
@@ -124,6 +135,11 @@ def rolling_forecast(
     history = list(train)
     predictions = []
     fitted = None
+    fit_diagnostics = {
+        "aic": np.nan,
+        "bic": np.nan,
+        "fit_converged": False
+    }
     context_applied = False
 
     max_history = getattr(config, "MAX_HISTORY", None)
@@ -190,6 +206,7 @@ def rolling_forecast(
                     model,
                     config
                 )
+                fit_diagnostics = get_fit_diagnostics(fitted)
 
             except Exception as first_error:
                 print(
@@ -218,6 +235,7 @@ def rolling_forecast(
                         model,
                         relaxed_config
                     )
+                    fit_diagnostics = get_fit_diagnostics(fitted)
 
                 except Exception as second_error:
                     if context is not None and not context_applied:
@@ -326,5 +344,8 @@ def rolling_forecast(
                 )
 
                 fitted = None
+
+    if return_diagnostics:
+        return predictions, fit_diagnostics
 
     return predictions

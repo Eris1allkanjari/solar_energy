@@ -5,8 +5,10 @@ import pandas as pd
 
 from src.configs.evaluation import (
     AR_REFIT_INTERVAL,
+    EXOG_LAG_STEPS,
     FINAL_COMPARISON_PROTOCOL,
     MIN_SEASONAL_WINDOW,
+    MAPE_PRODUCTION_THRESHOLD,
     NEURAL_SELECTION_PROTOCOL,
     SELECTION_PROTOCOL,
     TEST_OFFSET,
@@ -71,6 +73,14 @@ NEURAL_PROTOCOL_COLUMNS = {
     "val_seed_rmse_std",
     "val_seed_mae_values",
     "val_seed_rmse_values"
+}
+
+AR_PROTOCOL_COLUMNS = {
+    "aic",
+    "bic",
+    "exog_features",
+    "fit_converged",
+    "exog_lag_steps"
 }
 
 
@@ -168,6 +178,17 @@ def validate_tuning_protocol(
                 f"{sorted(missing_neural_columns)}. Rerun neural "
                 "parameter tuning first."
             )
+    else:
+        missing_ar_columns = AR_PROTOCOL_COLUMNS.difference(
+            results_df.columns
+        )
+
+        if missing_ar_columns:
+            raise RuntimeError(
+                f"stale AR tuning results in {path}. Missing columns: "
+                f"{sorted(missing_ar_columns)}. Rerun autoregressive "
+                "parameter tuning first."
+            )
 
     protocols = set(
         results_df["selection_protocol"].dropna().astype(str)
@@ -205,6 +226,17 @@ def validate_tuning_protocol(
                 f"incompatible AR refit interval in {path}: "
                 f"{refit_intervals}. Expected {AR_REFIT_INTERVAL}."
             )
+
+        exogenous_rows = results_df[results_df["exog_features"].notna()]
+        if not exogenous_rows.empty:
+            lag_steps = set(
+                exogenous_rows["exog_lag_steps"].dropna().astype(int)
+            )
+            if lag_steps != {EXOG_LAG_STEPS}:
+                raise RuntimeError(
+                    f"incompatible exogenous lag in {path}: {lag_steps}. "
+                    f"Expected {EXOG_LAG_STEPS}."
+                )
 
 
 def load_best_setting(model_name, autoregressive=False):
@@ -311,6 +343,11 @@ def result_summary(
         "seasonal_order": final_result.get("seasonal_order"),
         "exog_features": final_result.get("exog_features"),
         "max_iter": final_result.get("max_iter"),
+        "tuning_aic": best_setting.get("aic"),
+        "tuning_bic": best_setting.get("bic"),
+        "tuning_fit_converged": best_setting.get("fit_converged"),
+        "exog_lag_steps": final_result.get("exog_lag_steps"),
+        "mape_production_threshold": MAPE_PRODUCTION_THRESHOLD,
         "mae": final_result["mae"],
         "mae_std": final_result.get("mae_std"),
         "rmse": final_result["rmse"],

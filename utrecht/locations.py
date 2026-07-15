@@ -1,6 +1,10 @@
+import os
+
 import requests
 
-API_KEY = "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6ImNhZTQ0NjRlNzI2NTQxMGZhYTlkNjY4MTZjODcyNzYzIiwiaCI6Im11cm11cjEyOCJ9"
+API_KEY = os.environ.get("KNMI_API_KEY")
+if not API_KEY:
+    raise RuntimeError("Set the KNMI_API_KEY environment variable")
 
 collection = "hourly-in-situ-meteorological-observations-validated"
 base_url = f"https://api.dataplatform.knmi.nl/edr/v1/collections/{collection}"

@@ -6,6 +6,7 @@ from sklearn.preprocessing import StandardScaler
 
 from src.configs.evaluation import (
     AR_REFIT_INTERVAL,
+    EXOG_LAG_STEPS,
     SELECTION_PROTOCOL,
     TRAIN_RATIO,
     VALIDATION_END_RATIO,
@@ -59,6 +60,9 @@ def prepare_ar_data(df):
     )
 
     exog = exog.interpolate().bfill().ffill()
+    exog_unlagged = exog.copy()
+    exog = exog.shift(EXOG_LAG_STEPS)
+    exog.iloc[:EXOG_LAG_STEPS] = exog_unlagged.iloc[:EXOG_LAG_STEPS]
 
     n_raw = len(y)
 
@@ -165,14 +169,15 @@ def evaluate_on_validation(
             y_val_eval.index
         ]
 
-    predictions = rolling_forecast(
+    predictions, fit_diagnostics = rolling_forecast(
         build_model_fn=build_model,
         train=y_train,
         test=y_val_eval,
         config=config,
         exog_train=model_exog_train,
         exog_test=model_exog_val,
-        refit_interval=refit_interval
+        refit_interval=refit_interval,
+        return_diagnostics=True
     )
 
     mae, rmse, mape, smape = evaluate(
@@ -203,10 +208,12 @@ def evaluate_on_validation(
         "enforce_stationarity": config.ENFORCE_STATIONARITY,
         "enforce_invertibility": config.ENFORCE_INVERTIBILITY,
         "selection_protocol": SELECTION_PROTOCOL,
+        "exog_lag_steps": EXOG_LAG_STEPS if uses_exog(params) else None,
         "validation_start": y_val_eval.index[0],
         "validation_end": y_val_eval.index[-1],
         "validation_steps": len(y_val_eval),
         "validation_refit_interval": refit_interval,
+        **fit_diagnostics,
         **block_metrics,
         "val_mae": mae,
         "val_rmse": rmse,
@@ -273,6 +280,9 @@ def tune_ar_model(
                         "enforce_invertibility"
                     ),
                     "selection_protocol": SELECTION_PROTOCOL,
+                    "exog_lag_steps": (
+                        EXOG_LAG_STEPS if uses_exog(params) else None
+                    ),
                     "validation_start": y_val.index[0],
                     "validation_end": (
                         y_val.iloc[:validation_steps].index[-1]
@@ -285,6 +295,9 @@ def tune_ar_model(
                         else len(y_val)
                     ),
                     "validation_refit_interval": refit_interval,
+                    "aic": np.nan,
+                    "bic": np.nan,
+                    "fit_converged": False,
                     "validation_blocks": np.nan,
                     "val_block_mae_mean": np.nan,
                     "val_block_mae_std": np.nan,
@@ -303,7 +316,8 @@ def tune_ar_model(
         try:
             best_per_l.append(
                 select_robust_candidate(
-                    results_for_l
+                    results_for_l,
+                    information_criterion="bic"
                 )
             )
         except ValueError:
@@ -500,6 +514,7 @@ def final_test(
             else None
         ),
         "max_iter": config.MAX_ITER,
+        "exog_lag_steps": EXOG_LAG_STEPS if uses_exog(params) else None,
         "training_data": (
             "train_validation"
             if include_validation_in_training

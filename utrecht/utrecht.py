@@ -1,7 +1,14 @@
+import os
+from pathlib import Path
+
 import requests
 import pandas as pd
 
-API_KEY = "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6ImNhZTQ0NjRlNzI2NTQxMGZhYTlkNjY4MTZjODcyNzYzIiwiaCI6Im11cm11cjEyOCJ9"
+API_KEY = os.environ.get("KNMI_API_KEY")
+if not API_KEY:
+    raise RuntimeError("Set the KNMI_API_KEY environment variable")
+
+UTRECHT_DIR = Path(__file__).resolve().parent
 
 collection = "hourly-in-situ-meteorological-observations-validated"
 base_url = f"https://api.dataplatform.knmi.nl/edr/v1/collections/{collection}"
@@ -72,6 +79,8 @@ weather_df.drop(columns="solar_radiation_Jcm2", inplace=True)
 
 weather_df["time"] = pd.to_datetime(weather_df["time"]).dt.tz_convert("UTC").dt.tz_localize(None)
 
-weather_df.to_csv("knmi_data/knmi_hourly_2014_2017.csv", index=False)
+output_path = UTRECHT_DIR / "knmi_data" / "knmi_hourly_2014_2017.csv"
+output_path.parent.mkdir(parents=True, exist_ok=True)
+weather_df.to_csv(output_path, index=False)
 
 print(weather_df.head())

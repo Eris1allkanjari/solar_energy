@@ -211,6 +211,9 @@ __marimo__/
 # Data files (IMPORTANT)
 *.csv
 
+# Local experiment notes
+src/experiments/README.md
+
 # IDE files
 .idea/
 *.iml

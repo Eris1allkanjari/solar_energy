@@ -1,26 +1,46 @@
+from pathlib import Path
+
+import pandas as pd
 from statsmodels.tsa.stattools import adfuller
 
 from src.data.loader import load_dataset
 from src.experiments.constants import DATA_FILE_PATH
 
 
-def run_adf_test(series):
+RESULTS_DIR = Path(__file__).resolve().parents[1] / "experiments" / "results"
 
+
+def run_adf_test(series):
     result = adfuller(series)
+    critical_values = result[4]
+
+    return {
+        "adf_statistic": result[0],
+        "p_value": result[1],
+        "used_lag": result[2],
+        "n_observations": result[3],
+        "critical_value_1_percent": critical_values["1%"],
+        "critical_value_5_percent": critical_values["5%"],
+        "critical_value_10_percent": critical_values["10%"],
+        "stationary_at_5_percent": result[1] < 0.05
+    }
+
+
+def print_adf_result(result):
 
     print("\nadf test results")
 
-    print(f"adf statistic: {result[0]:.6f}")
+    print(f"adf statistic: {result['adf_statistic']:.6f}")
 
-    print(f"p-value: {result[1]:.6f}")
+    print(f"p-value: {result['p_value']:.6f}")
 
     print("\ncritical values:")
 
-    for key, value in result[4].items():
+    for level in (1, 5, 10):
+        value = result[f"critical_value_{level}_percent"]
+        print(f"{level}%: {value:.6f}")
 
-        print(f"{key}: {value:.6f}")
-
-    if result[1] < 0.05:
+    if result["stationary_at_5_percent"]:
 
         print("\nseries is likely stationary")
 
@@ -45,9 +65,15 @@ def main():
 
     y = y.interpolate().bfill().ffill()
 
-    # run adf test
+    result = run_adf_test(y)
+    result["series"] = "pv_total_kWh"
 
-    run_adf_test(y)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = RESULTS_DIR / "stationarity_adf.csv"
+    pd.DataFrame([result]).to_csv(output_path, index=False)
+
+    print_adf_result(result)
+    print(f"\nsaved results to {output_path}")
 
 
 if __name__ == "__main__":

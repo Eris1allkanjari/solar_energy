@@ -1,8 +1,15 @@
 import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
+from src.configs.evaluation import MAPE_PRODUCTION_THRESHOLD
 
-def evaluate(y_true, y_pred, production_threshold=5.0, epsilon=1e-6):
+
+def evaluate(
+    y_true,
+    y_pred,
+    production_threshold=MAPE_PRODUCTION_THRESHOLD,
+    epsilon=1e-6
+):
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 
