@@ -101,11 +101,18 @@ def scale_exog_splits(
         columns=train_subset.columns
     )
 
-    exog_val_scaled = pd.DataFrame(
-        scaler.transform(val_subset),
-        index=val_subset.index,
-        columns=val_subset.columns
-    )
+    if val_subset.empty:
+        exog_val_scaled = pd.DataFrame(
+            index=val_subset.index,
+            columns=val_subset.columns,
+            dtype=float
+        )
+    else:
+        exog_val_scaled = pd.DataFrame(
+            scaler.transform(val_subset),
+            index=val_subset.index,
+            columns=val_subset.columns
+        )
 
     exog_test_scaled = pd.DataFrame(
         scaler.transform(test_subset),
@@ -114,31 +121,6 @@ def scale_exog_splits(
     )
 
     return exog_train_scaled, exog_val_scaled, exog_test_scaled
-
-
-def scale_exog_train_test(
-    exog_train,
-    exog_test,
-    exog_features
-):
-    scaler = StandardScaler()
-
-    train_subset = exog_train[exog_features]
-    test_subset = exog_test[exog_features]
-
-    exog_train_scaled = pd.DataFrame(
-        scaler.fit_transform(train_subset),
-        index=train_subset.index,
-        columns=train_subset.columns
-    )
-
-    exog_test_scaled = pd.DataFrame(
-        scaler.transform(test_subset),
-        index=test_subset.index,
-        columns=test_subset.columns
-    )
-
-    return exog_train_scaled, exog_test_scaled
 
 
 def uses_exog(params):
@@ -451,23 +433,16 @@ def final_test(
 
     if uses_exog(params):
         if include_validation_in_training:
-            if test_offset:
-                (
-                    model_exog_train,
-                    model_exog_context,
-                    model_exog_test
-                ) = scale_exog_splits(
-                    exog_train=exog_train_final,
-                    exog_val=exog_test.iloc[:test_offset],
-                    exog_test=exog_test,
-                    exog_features=config.EXOG_FEATURES
-                )
-            else:
-                model_exog_train, model_exog_test = scale_exog_train_test(
-                    exog_train=exog_train_final,
-                    exog_test=exog_test,
-                    exog_features=config.EXOG_FEATURES
-                )
+            (
+                model_exog_train,
+                model_exog_context,
+                model_exog_test
+            ) = scale_exog_splits(
+                exog_train=exog_train_final,
+                exog_val=exog_test.iloc[:test_offset],
+                exog_test=exog_test,
+                exog_features=config.EXOG_FEATURES
+            )
         else:
             (
                 model_exog_train,

@@ -1,36 +1,3 @@
-class BaseConfig:
-    SEQ_LEN = 48
-
-    HIDDEN_UNITS_1 = 128
-    HIDDEN_UNITS_2 = 64
-
-    DROPOUT = 0.2
-
-    LEARNING_RATE = 0.001
-
-    EPOCHS = 30
-    BATCH_SIZE = 64
-
-    PATIENCE = 5
-    LOSS = "huber"
-    HUBER_DELTA = 0.1
-    WEIGHT_DECAY = 1e-5
-    GRADIENT_CLIP = 1.0
-
-
-class SmallModelConfig(BaseConfig):
-    HIDDEN_UNITS_1 = 64
-    HIDDEN_UNITS_2 = 32
-
-
-class LargeModelConfig(BaseConfig):
-    HIDDEN_UNITS_1 = 256
-    HIDDEN_UNITS_2 = 128
-
-
-class HighDropoutConfig(BaseConfig):
-    DROPOUT = 0.4
-
 class ExperimentConfig:
     def __init__(self, params, seq_len):
         self.SEQ_LEN = seq_len

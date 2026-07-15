@@ -1,8 +1,4 @@
-from src.configs.evaluation import (
-    MIN_SEASONAL_WINDOW,
-    TEST_STEPS as AR_TEST_STEPS,
-    VALIDATION_STEPS as AR_VALIDATION_STEPS
-)
+from src.configs.evaluation import MIN_SEASONAL_WINDOW
 
 
 AR_WINDOW_LENGTHS = [

@@ -416,9 +416,7 @@ def main():
             df_proc=df_proc,
             best_setting=best_setting,
             test_steps=FINAL_TEST_STEPS,
-            test_offset=TEST_OFFSET,
-            align_test_start=True,
-            validation_steps=VALIDATION_STEPS
+            test_offset=TEST_OFFSET
         )
 
         summary = result_summary(

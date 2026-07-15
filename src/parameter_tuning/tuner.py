@@ -46,12 +46,9 @@ def prepare_data_for_l(
 
     train_df = df_proc.iloc[:train_end]
     val_df = df_proc.iloc[train_end:val_end]
-    test_df = df_proc.iloc[val_end:]
-
     scaler = MinMaxScaler()
 
     train_scaled = scaler.fit_transform(train_df)
-    test_scaled = scaler.transform(test_df)
 
     if validation_steps is not None:
         if validation_steps <= 0:
@@ -83,9 +80,8 @@ def prepare_data_for_l(
 
     X_train, y_train = create_sequences(train_scaled, seq_len)
     X_val, y_val = create_sequences(val_scaled, seq_len)
-    X_test, y_test = create_sequences(test_scaled, seq_len)
 
-    return X_train, y_train, X_val, y_val, X_test, y_test, scaler
+    return X_train, y_train, X_val, y_val, scaler
 
 
 def evaluate_on_validation(
@@ -101,7 +97,7 @@ def evaluate_on_validation(
         seq_len=seq_len
     )
 
-    X_train, y_train, X_val, y_val, X_test, y_test, scaler = prepare_data_for_l(
+    X_train, y_train, X_val, y_val, scaler = prepare_data_for_l(
         df_proc=df_proc,
         seq_len=seq_len,
         validation_steps=validation_steps
@@ -316,9 +312,7 @@ def final_test(
     df_proc,
     best_setting,
     test_steps=None,
-    test_offset=0,
-    align_test_start=False,
-    validation_steps=VALIDATION_STEPS
+    test_offset=0
 ):
     seq_len = int(best_setting["seq_len"])
 
