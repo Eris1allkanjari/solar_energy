@@ -1,0 +1,487 @@
+import argparse
+from pathlib import Path
+
+import pandas as pd
+
+from src.configs.evaluation import (
+    AR_REFIT_INTERVAL,
+    FINAL_COMPARISON_PROTOCOL,
+    MIN_SEASONAL_WINDOW,
+    NEURAL_SELECTION_PROTOCOL,
+    SELECTION_PROTOCOL,
+    TEST_OFFSET,
+    TEST_STEPS,
+    VALIDATION_END_RATIO,
+    VALIDATION_STEPS
+)
+from src.data.loader import load_dataset
+from src.experiments.ar_parameter_tuning_run import get_ar_model_builder
+from src.experiments.constants import DATA_FILE_PATH
+from src.experiments.parameter_tuning_run import get_model, prepare_dataframe
+from src.parameter_tuning.ar_tuner import final_test as final_ar_test
+from src.parameter_tuning.plots import plot_real_vs_predicted
+from src.parameter_tuning.selection import (
+    SELECTION_MAE_KEY,
+    select_robust_candidate
+)
+from src.parameter_tuning.tuner import final_test as final_neural_test
+
+
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+FINAL_TEST_STEPS = TEST_STEPS
+
+NEURAL_MODELS = [
+    "lstm",
+    "gru"
+]
+
+AR_MODELS = [
+    "arima",
+    "sarima",
+    "arimax",
+    "sarimax"
+]
+
+ALL_MODELS = NEURAL_MODELS + AR_MODELS
+
+PROTOCOL_COLUMNS = {
+    "selection_protocol",
+    "validation_start",
+    "validation_end",
+    "validation_steps",
+    "validation_refit_interval",
+    "validation_blocks",
+    "val_block_mae_mean",
+    "val_block_mae_std",
+    "val_block_rmse_mean",
+    "val_block_rmse_std"
+}
+
+NEURAL_PROTOCOL_COLUMNS = {
+    "loss",
+    "huber_delta",
+    "weight_decay",
+    "gradient_clip",
+    "shuffle_training",
+    "seeds",
+    "seed_count",
+    "best_epochs",
+    "best_epoch",
+    "val_seed_mae_std",
+    "val_seed_rmse_std",
+    "val_seed_mae_values",
+    "val_seed_rmse_values"
+}
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run final comparisons without repeating tuning."
+    )
+    parser.add_argument(
+        "--models",
+        nargs="+",
+        choices=ALL_MODELS,
+        default=ALL_MODELS,
+        help="Models to rerun; existing rows for other models are preserved."
+    )
+
+    return parser.parse_args()
+
+
+def load_existing_summaries(models_to_replace):
+    comparison_path = RESULTS_DIR / "final_model_comparison.csv"
+
+    if not comparison_path.exists():
+        return []
+
+    comparison_df = pd.read_csv(
+        comparison_path
+    )
+
+    required_columns = {"model", "selection_protocol"}
+    missing_columns = required_columns.difference(
+        comparison_df.columns
+    )
+
+    if missing_columns:
+        return []
+
+    comparison_df = comparison_df[
+        comparison_df["selection_protocol"] == FINAL_COMPARISON_PROTOCOL
+    ]
+
+    if comparison_df.empty:
+        return []
+
+    resume_columns = {
+        "state_context_steps",
+        "test_offset",
+        "training_data",
+        "tuning_protocol"
+    }
+
+    if resume_columns.difference(comparison_df.columns):
+        return []
+
+    comparison_df = comparison_df[
+        pd.to_numeric(
+            comparison_df["test_offset"],
+            errors="coerce"
+        ) == TEST_OFFSET
+    ]
+    comparison_df = comparison_df[
+        comparison_df["training_data"] == "train_validation"
+    ]
+    comparison_df = comparison_df[
+        ~comparison_df["model"].isin(models_to_replace)
+    ]
+
+    return comparison_df.to_dict(
+        orient="records"
+    )
+
+
+def validate_tuning_protocol(
+    results_df,
+    path,
+    autoregressive
+):
+    missing_columns = PROTOCOL_COLUMNS.difference(
+        results_df.columns
+    )
+
+    if missing_columns:
+        raise RuntimeError(
+            f"stale tuning results in {path}. Missing protocol columns: "
+            f"{sorted(missing_columns)}. Rerun parameter tuning first."
+        )
+
+    if not autoregressive:
+        missing_neural_columns = NEURAL_PROTOCOL_COLUMNS.difference(
+            results_df.columns
+        )
+
+        if missing_neural_columns:
+            raise RuntimeError(
+                f"stale neural tuning results in {path}. Missing columns: "
+                f"{sorted(missing_neural_columns)}. Rerun neural "
+                "parameter tuning first."
+            )
+
+    protocols = set(
+        results_df["selection_protocol"].dropna().astype(str)
+    )
+
+    expected_protocol = (
+        SELECTION_PROTOCOL
+        if autoregressive
+        else NEURAL_SELECTION_PROTOCOL
+    )
+
+    if protocols != {expected_protocol}:
+        raise RuntimeError(
+            f"incompatible selection protocol in {path}: {protocols}. "
+            "Rerun parameter tuning first."
+        )
+
+    validation_lengths = set(
+        results_df["validation_steps"].dropna().astype(int)
+    )
+
+    if validation_lengths != {VALIDATION_STEPS}:
+        raise RuntimeError(
+            f"incompatible validation length in {path}: "
+            f"{validation_lengths}. Expected {VALIDATION_STEPS}."
+        )
+
+    if autoregressive:
+        refit_intervals = set(
+            results_df["validation_refit_interval"].dropna().astype(int)
+        )
+
+        if refit_intervals != {AR_REFIT_INTERVAL}:
+            raise RuntimeError(
+                f"incompatible AR refit interval in {path}: "
+                f"{refit_intervals}. Expected {AR_REFIT_INTERVAL}."
+            )
+
+
+def load_best_setting(model_name, autoregressive=False):
+    suffix = "_ar_best_per_l.csv" if autoregressive else "_best_per_l.csv"
+    path = RESULTS_DIR / f"{model_name}{suffix}"
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"missing tuning results for {model_name}: {path}"
+        )
+
+    results_df = pd.read_csv(path)
+    validate_tuning_protocol(
+        results_df=results_df,
+        path=path,
+        autoregressive=autoregressive
+    )
+
+    valid_results = results_df.dropna(
+        subset=[SELECTION_MAE_KEY]
+    )
+
+    if valid_results.empty:
+        raise RuntimeError(
+            f"no successful tuning result found for {model_name}"
+        )
+
+    if (
+        model_name in {"sarima", "sarimax"}
+        and valid_results["seq_len"].astype(int).min()
+        < MIN_SEASONAL_WINDOW
+    ):
+        raise RuntimeError(
+            f"incompatible seasonal windows in {path}. Rerun "
+            "autoregressive parameter tuning first."
+        )
+
+    return select_robust_candidate(
+        valid_results.to_dict(
+            orient="records"
+        )
+    )
+
+
+def result_summary(
+    final_result,
+    best_setting,
+    model_family,
+    test_start,
+    test_end
+):
+    return {
+        "model": final_result["model"],
+        "model_family": model_family,
+        "seq_len": final_result["seq_len"],
+        "test_start": test_start,
+        "test_end": test_end,
+        "test_offset": TEST_OFFSET,
+        "test_steps": len(final_result["y_test"]),
+        "training_data": final_result["training_data"],
+        "selection_protocol": FINAL_COMPARISON_PROTOCOL,
+        "tuning_protocol": best_setting["selection_protocol"],
+        "validation_start": best_setting["validation_start"],
+        "validation_end": best_setting["validation_end"],
+        "validation_steps": VALIDATION_STEPS,
+        "validation_blocks": best_setting["validation_blocks"],
+        "val_block_mae_mean": best_setting["val_block_mae_mean"],
+        "val_block_mae_std": best_setting["val_block_mae_std"],
+        "val_block_rmse_mean": best_setting["val_block_rmse_mean"],
+        "val_block_rmse_std": best_setting["val_block_rmse_std"],
+        "val_seed_mae_std": best_setting.get("val_seed_mae_std"),
+        "val_seed_rmse_std": best_setting.get("val_seed_rmse_std"),
+        "val_seed_mae_values": best_setting.get("val_seed_mae_values"),
+        "val_seed_rmse_values": best_setting.get("val_seed_rmse_values"),
+        "best_epochs": best_setting.get("best_epochs"),
+        "validation_refit_interval": best_setting[
+            "validation_refit_interval"
+        ],
+        "ar_refit_interval": (
+            AR_REFIT_INTERVAL
+            if model_family == "autoregressive"
+            else None
+        ),
+        "state_context_steps": final_result.get(
+            "state_context_steps",
+            final_result["seq_len"]
+        ),
+        "hidden_units_1": final_result.get("hidden_units_1"),
+        "hidden_units_2": final_result.get("hidden_units_2"),
+        "dropout": final_result.get("dropout"),
+        "learning_rate": final_result.get("learning_rate"),
+        "batch_size": final_result.get("batch_size"),
+        "loss": final_result.get("loss"),
+        "huber_delta": final_result.get("huber_delta"),
+        "weight_decay": final_result.get("weight_decay"),
+        "gradient_clip": final_result.get("gradient_clip"),
+        "shuffle_training": final_result.get("shuffle_training"),
+        "seeds": final_result.get("seeds"),
+        "seed_count": final_result.get("seed_count"),
+        "refit_epochs": final_result.get("refit_epochs"),
+        "mae_by_seed": final_result.get("mae_by_seed"),
+        "rmse_by_seed": final_result.get("rmse_by_seed"),
+        "order": final_result.get("order"),
+        "seasonal_order": final_result.get("seasonal_order"),
+        "exog_features": final_result.get("exog_features"),
+        "max_iter": final_result.get("max_iter"),
+        "mae": final_result["mae"],
+        "mae_std": final_result.get("mae_std"),
+        "rmse": final_result["rmse"],
+        "rmse_std": final_result.get("rmse_std"),
+        "mape": final_result["mape"],
+        "mape_std": final_result.get("mape_std"),
+        "smape": final_result["smape"],
+        "smape_std": final_result.get("smape_std")
+    }
+
+
+def save_model_result(final_result, summary):
+    model_name = final_result["model"]
+    output_path = RESULTS_DIR / (
+        f"{model_name}_comparison_final_test_result.csv"
+    )
+
+    pd.DataFrame([summary]).to_csv(
+        output_path,
+        index=False
+    )
+
+    plot_real_vs_predicted(
+        y_true=final_result["y_test"],
+        y_pred=final_result["y_pred"],
+        output_path=str(
+            RESULTS_DIR
+            / f"{model_name}_comparison_actual_vs_predicted.png"
+        ),
+        title=(
+            f"final comparison for {model_name}, "
+            f"L={final_result['seq_len']}"
+        ),
+        max_points=500,
+        show=False
+    )
+
+
+def save_comparison(summaries):
+    comparison_df = pd.DataFrame(summaries)
+    comparison_df = comparison_df.sort_values(
+        "mae"
+    )
+
+    comparison_df.to_csv(
+        RESULTS_DIR / "final_model_comparison.csv",
+        index=False
+    )
+
+
+def main():
+    args = parse_args()
+    selected_models = set(
+        args.models
+    )
+
+    RESULTS_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    df = load_dataset(
+        DATA_FILE_PATH
+    )
+    df_proc = prepare_dataframe(
+        df
+    )
+
+    n_raw = len(df_proc)
+    test_split_start = int(n_raw * VALIDATION_END_RATIO)
+    test_start_index = test_split_start + TEST_OFFSET
+    test_df = df_proc.iloc[
+        test_start_index:test_start_index + FINAL_TEST_STEPS
+    ]
+
+    if len(test_df) < FINAL_TEST_STEPS:
+        raise RuntimeError(
+            f"requested {FINAL_TEST_STEPS} test steps, "
+            f"but only {len(test_df)} are available"
+        )
+
+    test_start = test_df.index[0]
+    test_end = test_df.index[-1]
+    summaries = load_existing_summaries(
+        models_to_replace=selected_models
+    )
+
+    for model_name in NEURAL_MODELS:
+        if model_name not in selected_models:
+            continue
+
+        print(
+            f"\nrunning final comparison for {model_name}"
+        )
+
+        best_setting = load_best_setting(
+            model_name=model_name
+        )
+
+        final_result = final_neural_test(
+            model_name=model_name,
+            get_model=get_model,
+            df_proc=df_proc,
+            best_setting=best_setting,
+            test_steps=FINAL_TEST_STEPS,
+            test_offset=TEST_OFFSET
+        )
+
+        summary = result_summary(
+            final_result=final_result,
+            best_setting=best_setting,
+            model_family="neural",
+            test_start=test_start,
+            test_end=test_end
+        )
+        summaries.append(summary)
+
+        save_model_result(
+            final_result=final_result,
+            summary=summary
+        )
+        save_comparison(
+            summaries
+        )
+
+    for model_name in AR_MODELS:
+        if model_name not in selected_models:
+            continue
+
+        print(
+            f"\nrunning final comparison for {model_name}"
+        )
+
+        best_setting = load_best_setting(
+            model_name=model_name,
+            autoregressive=True
+        )
+
+        final_result = final_ar_test(
+            model_name=model_name,
+            build_model=get_ar_model_builder(model_name),
+            df=df,
+            best_setting=best_setting,
+            test_steps=FINAL_TEST_STEPS,
+            test_offset=TEST_OFFSET,
+            include_validation_in_training=True,
+            refit_interval=AR_REFIT_INTERVAL
+        )
+
+        summary = result_summary(
+            final_result=final_result,
+            best_setting=best_setting,
+            model_family="autoregressive",
+            test_start=test_start,
+            test_end=test_end
+        )
+        summaries.append(summary)
+
+        save_model_result(
+            final_result=final_result,
+            summary=summary
+        )
+        save_comparison(
+            summaries
+        )
+
+    print(
+        "\nsaved final model comparison to "
+        f"{RESULTS_DIR / 'final_model_comparison.csv'}"
+    )
+
+
+if __name__ == "__main__":
+    main()

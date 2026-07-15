@@ -1,5 +1,3 @@
-import pandas as pd
-
 from statsmodels.tsa.stattools import adfuller
 
 from src.data.loader import load_dataset
