@@ -205,6 +205,8 @@ def evaluate_on_validation(
     return {
         "model": model_name,
         "seq_len": seq_len,
+        "input_features": ",".join(df_proc.columns),
+        "feature_count": len(df_proc.columns),
         "hidden_units_1": config.HIDDEN_UNITS_1,
         "hidden_units_2": config.HIDDEN_UNITS_2,
         "dropout": config.DROPOUT,
@@ -455,6 +457,8 @@ def final_test(
     return {
         "model": model_name,
         "seq_len": seq_len,
+        "input_features": ",".join(df_proc.columns),
+        "feature_count": len(df_proc.columns),
         "hidden_units_1": config.HIDDEN_UNITS_1,
         "hidden_units_2": config.HIDDEN_UNITS_2,
         "dropout": config.DROPOUT,

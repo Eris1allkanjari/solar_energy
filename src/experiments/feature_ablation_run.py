@@ -163,6 +163,14 @@ def run_ar_ablation(model_name, feature_df):
         result["feature_set"] = feature_set
         result["feature_count"] = len(features)
         result["features"] = ",".join(features)
+        result["accepted"] = bool(result["fit_converged"])
+
+        if not result["accepted"]:
+            print(
+                f"rejecting non-converged {model_name} fit for "
+                f"{feature_set}"
+            )
+
         results.append(result)
         save_results(model_name, results)
 

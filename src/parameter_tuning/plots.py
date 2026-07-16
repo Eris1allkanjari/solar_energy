@@ -96,7 +96,16 @@ def plot_real_vs_predicted(
 
 
 def plot_feature_ablation(results, output_path=None, show=False):
-    results_df = pd.DataFrame(results).sort_values(
+    results_df = pd.DataFrame(results)
+
+    if "accepted" in results_df.columns:
+        accepted = results_df["accepted"].astype(str).str.lower().eq("true")
+        results_df = results_df[accepted]
+
+    if results_df.empty:
+        return
+
+    results_df = results_df.sort_values(
         "val_block_mae_mean"
     )
 

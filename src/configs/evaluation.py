@@ -12,6 +12,6 @@ MIN_SEASONAL_WINDOW = 720
 RNN_SEEDS = (42, 123, 2026)
 MAPE_PRODUCTION_THRESHOLD = 5.0
 
-SELECTION_PROTOCOL = "monthly_blocks_bic_lag1_v3"
-NEURAL_SELECTION_PROTOCOL = "monthly_blocks_seeded_refit_v3"
-FINAL_COMPARISON_PROTOCOL = "train_validation_seeded_lag1_v4"
+SELECTION_PROTOCOL = "monthly_blocks_converged_bic_lag1_v5"
+NEURAL_SELECTION_PROTOCOL = "monthly_blocks_seeded_expanded_features_v5"
+FINAL_COMPARISON_PROTOCOL = "train_validation_model_features_v6"

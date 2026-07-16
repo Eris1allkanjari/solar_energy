@@ -204,6 +204,13 @@ def evaluate_on_validation(
             if hasattr(config, "EXOG_FEATURES")
             else None
         ),
+        "input_features": ",".join(
+            [
+                "pv_total_kWh",
+                *getattr(config, "EXOG_FEATURES", [])
+            ]
+        ),
+        "feature_count": 1 + len(getattr(config, "EXOG_FEATURES", [])),
         "max_iter": config.MAX_ITER,
         "enforce_stationarity": config.ENFORCE_STATIONARITY,
         "enforce_invertibility": config.ENFORCE_INVERTIBILITY,
@@ -317,7 +324,8 @@ def tune_ar_model(
             best_per_l.append(
                 select_robust_candidate(
                     results_for_l,
-                    information_criterion="bic"
+                    information_criterion="bic",
+                    require_converged=True
                 )
             )
         except ValueError:
@@ -328,7 +336,8 @@ def tune_ar_model(
 
 def select_best_l(best_per_l):
     return select_robust_candidate(
-        best_per_l
+        best_per_l,
+        require_converged=True
     )
 
 
@@ -513,6 +522,13 @@ def final_test(
             if hasattr(config, "EXOG_FEATURES")
             else None
         ),
+        "input_features": ",".join(
+            [
+                "pv_total_kWh",
+                *getattr(config, "EXOG_FEATURES", [])
+            ]
+        ),
+        "feature_count": 1 + len(getattr(config, "EXOG_FEATURES", [])),
         "max_iter": config.MAX_ITER,
         "exog_lag_steps": EXOG_LAG_STEPS if uses_exog(params) else None,
         "training_data": (

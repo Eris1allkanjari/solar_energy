@@ -9,6 +9,15 @@ SELECTION_MAE_KEY = "val_block_mae_mean"
 SELECTION_RMSE_KEY = "val_block_rmse_mean"
 
 
+def result_converged(result):
+    value = result.get("fit_converged", False)
+
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+
+    return bool(value)
+
+
 def calculate_monthly_validation_metrics(
     index,
     y_true,
@@ -53,12 +62,17 @@ def calculate_monthly_validation_metrics(
 def select_robust_candidate(
     results,
     mae_tolerance=SELECTION_MAE_TOLERANCE,
-    information_criterion=None
+    information_criterion=None,
+    require_converged=False
 ):
     valid_results = [
         result
         for result in results
         if np.isfinite(float(result[SELECTION_MAE_KEY]))
+        and (
+            not require_converged
+            or result_converged(result)
+        )
     ]
 
     if not valid_results:
@@ -82,7 +96,6 @@ def select_robust_candidate(
         key = []
 
         if information_criterion is not None:
-            key.append(not bool(result.get("fit_converged", False)))
             value = float(result.get(information_criterion, np.inf))
             key.append(value if np.isfinite(value) else np.inf)
 

@@ -60,6 +60,8 @@ PROTOCOL_COLUMNS = {
 }
 
 NEURAL_PROTOCOL_COLUMNS = {
+    "input_features",
+    "feature_count",
     "loss",
     "huber_delta",
     "weight_decay",
@@ -178,6 +180,7 @@ def validate_tuning_protocol(
                 f"{sorted(missing_neural_columns)}. Rerun neural "
                 "parameter tuning first."
             )
+
     else:
         missing_ar_columns = AR_PROTOCOL_COLUMNS.difference(
             results_df.columns
@@ -237,6 +240,13 @@ def validate_tuning_protocol(
                     f"incompatible exogenous lag in {path}: {lag_steps}. "
                     f"Expected {EXOG_LAG_STEPS}."
                 )
+
+        converged = results_df["fit_converged"].astype(str).str.lower()
+        if not converged.eq("true").all():
+            raise RuntimeError(
+                f"non-converged AR settings found in {path}. Rerun "
+                "autoregressive parameter tuning first."
+            )
 
 
 def load_best_setting(model_name, autoregressive=False):
@@ -342,6 +352,8 @@ def result_summary(
         "order": final_result.get("order"),
         "seasonal_order": final_result.get("seasonal_order"),
         "exog_features": final_result.get("exog_features"),
+        "input_features": final_result.get("input_features"),
+        "feature_count": final_result.get("feature_count"),
         "max_iter": final_result.get("max_iter"),
         "tuning_aic": best_setting.get("aic"),
         "tuning_bic": best_setting.get("bic"),

@@ -30,7 +30,7 @@ AR_HYPERPARAMETER_GRIDS = {
             (2, 0, 1),
             (2, 1, 1)
         ],
-        "max_iter": [50],
+        "max_iter": [200],
         "enforce_stationarity": [True],
         "enforce_invertibility": [True]
     },
@@ -44,7 +44,7 @@ AR_HYPERPARAMETER_GRIDS = {
             (1, 0, 1, 24),
             (1, 1, 1, 24)
         ],
-        "max_iter": [50],
+        "max_iter": [200],
         "enforce_stationarity": [False],
         "enforce_invertibility": [False]
     },
@@ -66,7 +66,7 @@ AR_HYPERPARAMETER_GRIDS = {
                 "temperature_C"
             ]
         ],
-        "max_iter": [50],
+        "max_iter": [200],
         "enforce_stationarity": [False],
         "enforce_invertibility": [False]
     },
@@ -91,7 +91,7 @@ AR_HYPERPARAMETER_GRIDS = {
                 "temperature_C"
             ]
         ],
-        "max_iter": [50],
+        "max_iter": [200],
         "enforce_stationarity": [False],
         "enforce_invertibility": [False]
     }
