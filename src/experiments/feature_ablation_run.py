@@ -1,5 +1,4 @@
 import argparse
-from pathlib import Path
 
 import pandas as pd
 
@@ -7,7 +6,7 @@ from src.configs.evaluation import AR_REFIT_INTERVAL, VALIDATION_STEPS
 from src.data.loader import load_dataset
 from src.data.preprocessing import add_time_features, clean_data
 from src.experiments.ar_parameter_tuning_run import get_ar_model_builder
-from src.experiments.constants import DATA_FILE_PATH
+from src.experiments.constants import DATA_FILE_PATH, FEATURE_ABLATION_RESULTS_DIR
 from src.experiments.final_model_comparison_run import load_best_setting
 from src.experiments.parameter_tuning_run import get_model
 from src.parameter_tuning.ar_tuner import (
@@ -22,7 +21,7 @@ from src.parameter_tuning.tuner import (
 )
 
 
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
+RESULTS_DIR = FEATURE_ABLATION_RESULTS_DIR
 MODEL_CHOICES = ["lstm", "gru", "arimax", "sarimax"]
 
 NEURAL_FEATURE_SETS = {

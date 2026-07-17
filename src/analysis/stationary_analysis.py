@@ -1,13 +1,11 @@
-from pathlib import Path
-
 import pandas as pd
 from statsmodels.tsa.stattools import adfuller
 
 from src.data.loader import load_dataset
-from src.experiments.constants import DATA_FILE_PATH
+from src.experiments.constants import ANALYSIS_RESULTS_DIR, DATA_FILE_PATH
 
 
-RESULTS_DIR = Path(__file__).resolve().parents[1] / "experiments" / "results"
+RESULTS_DIR = ANALYSIS_RESULTS_DIR
 
 
 def run_adf_test(series):

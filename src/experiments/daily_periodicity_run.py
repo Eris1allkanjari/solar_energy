@@ -1,5 +1,4 @@
 import argparse
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -15,7 +14,12 @@ from src.data.preprocessing import (
     add_time_features,
     clean_data
 )
-from src.experiments.constants import DATA_FILE_PATH
+from src.experiments.constants import (
+    AR_TUNING_RESULTS_DIR,
+    DAILY_PERIODICITY_RESULTS_DIR,
+    DATA_FILE_PATH,
+    NEURAL_TUNING_RESULTS_DIR
+)
 from src.experiments.final_model_comparison_run import load_best_setting
 from src.experiments.parameter_tuning_run import get_model, prepare_dataframe
 from src.parameter_tuning.plots import plot_feature_ablation
@@ -31,7 +35,7 @@ from src.training.trainer import set_random_seed, train_model
 from src.utils.scaler import inverse_target
 
 
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
+RESULTS_DIR = DAILY_PERIODICITY_RESULTS_DIR
 EXPERIMENT_PROTOCOL = "daily_periodicity_validation_v1"
 DEFAULT_SEED = 42
 SPECIALIST_INTERVAL_HOURS = 4
@@ -80,7 +84,7 @@ def save_dataframe(rows, filename):
 
 def save_existing_evidence():
     lstm_results = pd.read_csv(
-        RESULTS_DIR / "lstm_best_per_l.csv"
+        NEURAL_TUNING_RESULTS_DIR / "lstm_best_per_l.csv"
     )
     window_rows = lstm_results[
         lstm_results["seq_len"].astype(int).isin([48, 96])
@@ -90,10 +94,10 @@ def save_existing_evidence():
     window_rows.to_csv(window_path, index=False)
 
     arima_results = pd.read_csv(
-        RESULTS_DIR / "arima_ar_best_per_l.csv"
+        AR_TUNING_RESULTS_DIR / "arima_ar_best_per_l.csv"
     )
     sarima_results = pd.read_csv(
-        RESULTS_DIR / "sarima_ar_best_per_l.csv"
+        AR_TUNING_RESULTS_DIR / "sarima_ar_best_per_l.csv"
     )
     same_window_rows = pd.concat(
         [

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 
 from statsmodels.graphics.tsaplots import (
@@ -8,9 +6,9 @@ from statsmodels.graphics.tsaplots import (
 )
 
 from src.data.loader import load_dataset
-from src.experiments.constants import DATA_FILE_PATH
+from src.experiments.constants import ANALYSIS_RESULTS_DIR, DATA_FILE_PATH
 
-RESULTS_DIR = Path(__file__).resolve().parents[1] / "experiments" / "results"
+RESULTS_DIR = ANALYSIS_RESULTS_DIR
 
 
 def analyze_acf_pacf(

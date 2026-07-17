@@ -1,11 +1,10 @@
 import argparse
-from pathlib import Path
 
 import pandas as pd
 
 from src.configs.evaluation import VALIDATION_STEPS
 from src.data.loader import load_dataset
-from src.experiments.constants import DATA_FILE_PATH
+from src.experiments.constants import AR_TUNING_RESULTS_DIR, DATA_FILE_PATH
 from src.models.ar.arima import build_arima
 from src.models.ar.arimax import build_arimax
 from src.models.ar.sarima import build_sarima
@@ -18,7 +17,7 @@ from src.parameter_tuning.ar_tuner import select_best_l, tune_ar_model
 from src.parameter_tuning.plots import plot_mae_by_l
 
 
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
+RESULTS_DIR = AR_TUNING_RESULTS_DIR
 AR_MODEL_CHOICES = ["arima", "sarima", "arimax", "sarimax"]
 
 

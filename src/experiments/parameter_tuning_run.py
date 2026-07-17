@@ -1,11 +1,10 @@
 import argparse
-from pathlib import Path
 
 import pandas as pd
 
 from src.data.loader import load_dataset
 from src.data.preprocessing import add_time_features, clean_data, select_features
-from src.experiments.constants import DATA_FILE_PATH
+from src.experiments.constants import DATA_FILE_PATH, NEURAL_TUNING_RESULTS_DIR
 from src.models.rnn.gru import build_gru
 from src.models.rnn.lstm import build_lstm
 from src.models.rnn.lstm_attention import build_lstm_attention
@@ -17,7 +16,7 @@ from src.parameter_tuning.plots import plot_mae_by_l
 from src.parameter_tuning.tuner import select_best_l, tune_model
 
 
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
+RESULTS_DIR = NEURAL_TUNING_RESULTS_DIR
 MODEL_CHOICES = ["lstm", "gru", "attention"]
 
 

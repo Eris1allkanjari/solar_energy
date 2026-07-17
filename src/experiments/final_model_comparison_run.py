@@ -1,5 +1,4 @@
 import argparse
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -19,7 +18,12 @@ from src.configs.evaluation import (
 )
 from src.data.loader import load_dataset
 from src.experiments.ar_parameter_tuning_run import get_ar_model_builder
-from src.experiments.constants import DATA_FILE_PATH
+from src.experiments.constants import (
+    AR_TUNING_RESULTS_DIR,
+    DATA_FILE_PATH,
+    FINAL_COMPARISON_RESULTS_DIR,
+    NEURAL_TUNING_RESULTS_DIR
+)
 from src.experiments.parameter_tuning_run import get_model, prepare_dataframe
 from src.parameter_tuning.ar_tuner import final_test as final_ar_test
 from src.parameter_tuning.plots import plot_real_vs_predicted
@@ -31,7 +35,7 @@ from src.parameter_tuning.tuner import final_test as final_neural_test
 from src.training.evaluation import evaluate
 
 
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
+RESULTS_DIR = FINAL_COMPARISON_RESULTS_DIR
 FINAL_TEST_STEPS = TEST_STEPS
 
 NEURAL_MODELS = [
@@ -260,7 +264,12 @@ def validate_tuning_protocol(
 
 def load_best_setting(model_name, autoregressive=False):
     suffix = "_ar_best_per_l.csv" if autoregressive else "_best_per_l.csv"
-    path = RESULTS_DIR / f"{model_name}{suffix}"
+    tuning_dir = (
+        AR_TUNING_RESULTS_DIR
+        if autoregressive
+        else NEURAL_TUNING_RESULTS_DIR
+    )
+    path = tuning_dir / f"{model_name}{suffix}"
 
     if not path.exists():
         raise FileNotFoundError(
