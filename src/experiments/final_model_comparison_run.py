@@ -465,6 +465,12 @@ def save_comparison(summaries):
         RESULTS_DIR / "final_model_comparison.csv",
         index=False
     )
+    comparison_df[
+        ["model", "mae", "mape", "rmse", "smape"]
+    ].to_csv(
+        RESULTS_DIR / "final_model_metrics.csv",
+        index=False
+    )
 
 
 def run_baseline(model_name, df_proc, test_start_index, test_steps):
