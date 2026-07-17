@@ -90,7 +90,8 @@ def evaluate_on_validation(
     df_proc,
     seq_len,
     params,
-    validation_steps=VALIDATION_STEPS
+    validation_steps=VALIDATION_STEPS,
+    seeds=RNN_SEEDS
 ):
     config = ExperimentConfig(
         params=params,
@@ -123,7 +124,12 @@ def evaluate_on_validation(
     seed_results = []
     best_epochs = []
 
-    for seed in RNN_SEEDS:
+    seeds = tuple(seeds)
+
+    if not seeds:
+        raise ValueError("at least one random seed is required")
+
+    for seed in seeds:
         print(
             f"training {model_name}, L={seq_len}, seed={seed}"
         )
@@ -219,8 +225,8 @@ def evaluate_on_validation(
         "weight_decay": config.WEIGHT_DECAY,
         "gradient_clip": config.GRADIENT_CLIP,
         "shuffle_training": True,
-        "seeds": ",".join(str(seed) for seed in RNN_SEEDS),
-        "seed_count": len(RNN_SEEDS),
+        "seeds": ",".join(str(seed) for seed in seeds),
+        "seed_count": len(seeds),
         "best_epochs": ",".join(
             str(epoch)
             for epoch in best_epochs

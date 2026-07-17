@@ -22,6 +22,18 @@ def add_time_features(df):
 
     return df
 
+
+def add_target_time_features(df):
+    target_hour = (df.index.hour + 1) % 24
+    target_angle = 2 * np.pi * target_hour / 24
+
+    df["target_hour_linear"] = target_hour / 23
+    df["target_hour_cosine"] = (1 - np.cos(target_angle)) / 2
+    df["target_hour_sin"] = np.sin(target_angle)
+    df["target_hour_cos"] = np.cos(target_angle)
+
+    return df
+
 def select_features(df):
     features = [
         "pv_total_kWh",
