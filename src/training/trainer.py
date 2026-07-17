@@ -49,6 +49,7 @@ def train_model(
     set_random_seed(seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    pin_memory = device.type == "cuda"
     model = model.to(device)
 
     train_dataset = TensorDataset(
@@ -62,7 +63,8 @@ def train_model(
         train_dataset,
         batch_size=config.BATCH_SIZE,
         shuffle=True,
-        generator=generator
+        generator=generator,
+        pin_memory=pin_memory
     )
 
     val_loader = None
@@ -76,7 +78,8 @@ def train_model(
         val_loader = DataLoader(
             val_dataset,
             batch_size=config.BATCH_SIZE,
-            shuffle=False
+            shuffle=False,
+            pin_memory=pin_memory
         )
 
     criterion = build_loss(
@@ -101,10 +104,10 @@ def train_model(
         train_loss = 0.0
 
         for X_batch, y_batch in train_loader:
-            X_batch = X_batch.to(device)
-            y_batch = y_batch.to(device)
+            X_batch = X_batch.to(device, non_blocking=pin_memory)
+            y_batch = y_batch.to(device, non_blocking=pin_memory)
 
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
             predictions = model(X_batch)
 
@@ -138,8 +141,8 @@ def train_model(
         val_loss = 0.0
         with torch.no_grad():
             for X_batch, y_batch in val_loader:
-                X_batch = X_batch.to(device)
-                y_batch = y_batch.to(device)
+                X_batch = X_batch.to(device, non_blocking=pin_memory)
+                y_batch = y_batch.to(device, non_blocking=pin_memory)
 
                 predictions = model(X_batch)
 

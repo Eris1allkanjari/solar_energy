@@ -450,6 +450,10 @@ def final_test(
         seed_predictions,
         axis=0
     )
+    ensemble_mae, ensemble_rmse, ensemble_mape, ensemble_smape = evaluate(
+        y_test_rescaled,
+        y_pred_rescaled
+    )
     mae, rmse, mape, smape = np.mean(
         metric_values,
         axis=0
@@ -489,6 +493,7 @@ def final_test(
             for value in metric_values[:, 1]
         ),
         "training_data": "train_validation",
+        "metric_aggregation": "mean_across_seeds",
         "state_context_steps": seq_len,
         "mae": mae,
         "mae_std": mae_std,
@@ -498,6 +503,11 @@ def final_test(
         "mape_std": mape_std,
         "smape": smape,
         "smape_std": smape_std,
+        "ensemble_mae": ensemble_mae,
+        "ensemble_rmse": ensemble_rmse,
+        "ensemble_mape": ensemble_mape,
+        "ensemble_smape": ensemble_smape,
+        "test_index": test_df.index,
         "y_test": y_test_rescaled,
         "y_pred": y_pred_rescaled
     }

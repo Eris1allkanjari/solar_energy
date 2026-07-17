@@ -536,6 +536,7 @@ def final_test(
             if include_validation_in_training
             else "train_only"
         ),
+        "metric_aggregation": "deterministic",
         "state_context_steps": (
             len(state_context)
             if state_context is not None
@@ -545,6 +546,7 @@ def final_test(
         "rmse": rmse,
         "mape": mape,
         "smape": smape,
+        "test_index": y_test_eval.index,
         "y_test": y_test_eval.to_numpy(),
         "y_pred": np.asarray(predictions)
     }

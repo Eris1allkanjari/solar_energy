@@ -47,6 +47,17 @@ NEURAL_FEATURE_SETS = {
         "hour_sin",
         "hour_cos"
     ],
+    "expanded_weather_annual": [
+        "solar_radiation_Wm2",
+        "cloud_cover_okta",
+        "temperature_C",
+        "wind_speed_ms",
+        "humidity_percent",
+        "hour_sin",
+        "hour_cos",
+        "day_of_year_sin",
+        "day_of_year_cos"
+    ],
     "all_available": [
         "solar_radiation_Wm2",
         "cloud_cover_okta",
@@ -58,7 +69,9 @@ NEURAL_FEATURE_SETS = {
         "wind_direction_sin",
         "wind_direction_cos",
         "hour_sin",
-        "hour_cos"
+        "hour_cos",
+        "day_of_year_sin",
+        "day_of_year_cos"
     ]
 }
 

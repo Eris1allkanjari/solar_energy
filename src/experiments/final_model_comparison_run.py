@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from src.configs.evaluation import (
@@ -27,6 +28,7 @@ from src.parameter_tuning.selection import (
     select_robust_candidate
 )
 from src.parameter_tuning.tuner import final_test as final_neural_test
+from src.training.evaluation import evaluate
 
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -44,7 +46,12 @@ AR_MODELS = [
     "sarimax"
 ]
 
-ALL_MODELS = NEURAL_MODELS + AR_MODELS
+BASELINE_MODELS = [
+    "persistence",
+    "seasonal_naive_24h"
+]
+
+ALL_MODELS = NEURAL_MODELS + AR_MODELS + BASELINE_MODELS
 
 PROTOCOL_COLUMNS = {
     "selection_protocol",
@@ -143,7 +150,9 @@ def load_existing_summaries(models_to_replace):
         ) == TEST_OFFSET
     ]
     comparison_df = comparison_df[
-        comparison_df["training_data"] == "train_validation"
+        comparison_df["training_data"].isin(
+            ["train_validation", "not_applicable"]
+        )
     ]
     comparison_df = comparison_df[
         ~comparison_df["model"].isin(models_to_replace)
@@ -298,6 +307,11 @@ def result_summary(
     test_start,
     test_end
 ):
+    y_test = np.asarray(final_result["y_test"])
+    percentage_metric_samples = int(
+        (y_test > MAPE_PRODUCTION_THRESHOLD).sum()
+    )
+
     return {
         "model": final_result["model"],
         "model_family": model_family,
@@ -311,7 +325,9 @@ def result_summary(
         "tuning_protocol": best_setting["selection_protocol"],
         "validation_start": best_setting["validation_start"],
         "validation_end": best_setting["validation_end"],
-        "validation_steps": VALIDATION_STEPS,
+        "validation_steps": (
+            None if model_family == "baseline" else VALIDATION_STEPS
+        ),
         "validation_blocks": best_setting["validation_blocks"],
         "val_block_mae_mean": best_setting["val_block_mae_mean"],
         "val_block_mae_std": best_setting["val_block_mae_std"],
@@ -334,6 +350,7 @@ def result_summary(
             "state_context_steps",
             final_result["seq_len"]
         ),
+        "metric_aggregation": final_result.get("metric_aggregation"),
         "hidden_units_1": final_result.get("hidden_units_1"),
         "hidden_units_2": final_result.get("hidden_units_2"),
         "dropout": final_result.get("dropout"),
@@ -360,6 +377,10 @@ def result_summary(
         "tuning_fit_converged": best_setting.get("fit_converged"),
         "exog_lag_steps": final_result.get("exog_lag_steps"),
         "mape_production_threshold": MAPE_PRODUCTION_THRESHOLD,
+        "percentage_metric_samples": percentage_metric_samples,
+        "percentage_metric_coverage": (
+            percentage_metric_samples / len(y_test)
+        ),
         "mae": final_result["mae"],
         "mae_std": final_result.get("mae_std"),
         "rmse": final_result["rmse"],
@@ -367,7 +388,11 @@ def result_summary(
         "mape": final_result["mape"],
         "mape_std": final_result.get("mape_std"),
         "smape": final_result["smape"],
-        "smape_std": final_result.get("smape_std")
+        "smape_std": final_result.get("smape_std"),
+        "ensemble_mae": final_result.get("ensemble_mae"),
+        "ensemble_rmse": final_result.get("ensemble_rmse"),
+        "ensemble_mape": final_result.get("ensemble_mape"),
+        "ensemble_smape": final_result.get("ensemble_smape")
     }
 
 
@@ -379,6 +404,24 @@ def save_model_result(final_result, summary):
 
     pd.DataFrame([summary]).to_csv(
         output_path,
+        index=False
+    )
+
+    prediction_df = pd.DataFrame(
+        {
+            "time": pd.DatetimeIndex(final_result["test_index"]),
+            "y_true": np.asarray(final_result["y_test"]),
+            "y_pred": np.asarray(final_result["y_pred"])
+        }
+    )
+    prediction_df["absolute_error"] = np.abs(
+        prediction_df["y_true"] - prediction_df["y_pred"]
+    )
+    prediction_df["squared_error"] = (
+        prediction_df["y_true"] - prediction_df["y_pred"]
+    ) ** 2
+    prediction_df.to_csv(
+        RESULTS_DIR / f"{model_name}_final_test_predictions.csv",
         index=False
     )
 
@@ -400,6 +443,20 @@ def save_model_result(final_result, summary):
 
 def save_comparison(summaries):
     comparison_df = pd.DataFrame(summaries)
+
+    persistence_rows = comparison_df[
+        comparison_df["model"] == "persistence"
+    ]
+    if not persistence_rows.empty:
+        persistence_mae = float(persistence_rows.iloc[0]["mae"])
+        persistence_rmse = float(persistence_rows.iloc[0]["rmse"])
+        comparison_df["mae_skill_vs_persistence"] = (
+            1 - comparison_df["mae"] / persistence_mae
+        )
+        comparison_df["rmse_skill_vs_persistence"] = (
+            1 - comparison_df["rmse"] / persistence_rmse
+        )
+
     comparison_df = comparison_df.sort_values(
         "mae"
     )
@@ -408,6 +465,52 @@ def save_comparison(summaries):
         RESULTS_DIR / "final_model_comparison.csv",
         index=False
     )
+
+
+def run_baseline(model_name, df_proc, test_start_index, test_steps):
+    lags = {
+        "persistence": 1,
+        "seasonal_naive_24h": 24
+    }
+    lag = lags[model_name]
+    target = df_proc["pv_total_kWh"]
+    y_test = target.iloc[
+        test_start_index:test_start_index + test_steps
+    ]
+    y_pred = target.shift(lag).loc[y_test.index].to_numpy()
+    y_pred = np.clip(y_pred, 0, None)
+    mae, rmse, mape, smape = evaluate(y_test, y_pred)
+
+    return {
+        "model": model_name,
+        "seq_len": lag,
+        "input_features": "pv_total_kWh",
+        "feature_count": 1,
+        "training_data": "not_applicable",
+        "metric_aggregation": "deterministic",
+        "state_context_steps": lag,
+        "mae": mae,
+        "rmse": rmse,
+        "mape": mape,
+        "smape": smape,
+        "test_index": y_test.index,
+        "y_test": y_test.to_numpy(),
+        "y_pred": y_pred
+    }
+
+
+def baseline_setting():
+    return {
+        "selection_protocol": "fixed_baseline_v1",
+        "validation_start": None,
+        "validation_end": None,
+        "validation_blocks": None,
+        "val_block_mae_mean": None,
+        "val_block_mae_std": None,
+        "val_block_rmse_mean": None,
+        "val_block_rmse_std": None,
+        "validation_refit_interval": None
+    }
 
 
 def main():
@@ -446,6 +549,16 @@ def main():
     summaries = load_existing_summaries(
         models_to_replace=selected_models
     )
+    percentage_metric_samples = int(
+        (test_df["pv_total_kWh"] > MAPE_PRODUCTION_THRESHOLD).sum()
+    )
+    percentage_metric_coverage = (
+        percentage_metric_samples / len(test_df)
+    )
+
+    for summary in summaries:
+        summary["percentage_metric_samples"] = percentage_metric_samples
+        summary["percentage_metric_coverage"] = percentage_metric_coverage
 
     for model_name in NEURAL_MODELS:
         if model_name not in selected_models:
@@ -525,6 +638,31 @@ def main():
         save_comparison(
             summaries
         )
+
+    for model_name in BASELINE_MODELS:
+        if model_name not in selected_models:
+            continue
+
+        print(f"\nrunning final comparison for {model_name}")
+        final_result = run_baseline(
+            model_name=model_name,
+            df_proc=df_proc,
+            test_start_index=test_start_index,
+            test_steps=FINAL_TEST_STEPS
+        )
+        summary = result_summary(
+            final_result=final_result,
+            best_setting=baseline_setting(),
+            model_family="baseline",
+            test_start=test_start,
+            test_end=test_end
+        )
+        summaries.append(summary)
+        save_model_result(
+            final_result=final_result,
+            summary=summary
+        )
+        save_comparison(summaries)
 
     print(
         "\nsaved final model comparison to "

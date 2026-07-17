@@ -6,8 +6,7 @@ def predict_model(model, X_test, batch_size=64):
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
-
-    print(device)
+    pin_memory = device.type == "cuda"
 
     model = model.to(device)
 
@@ -21,7 +20,8 @@ def predict_model(model, X_test, batch_size=64):
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=False
+        shuffle=False,
+        pin_memory=pin_memory
     )
 
     predictions = []
@@ -32,7 +32,7 @@ def predict_model(model, X_test, batch_size=64):
 
         for (X_batch,) in loader:
 
-            X_batch = X_batch.to(device)
+            X_batch = X_batch.to(device, non_blocking=pin_memory)
 
             y_pred = model(X_batch)
 

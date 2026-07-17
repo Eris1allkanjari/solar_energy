@@ -15,6 +15,10 @@ def add_time_features(df):
     df["hour_sin"] = np.sin(2 * np.pi * df.index.hour / 24)
     df["hour_cos"] = np.cos(2 * np.pi * df.index.hour / 24)
 
+    day_angle = 2 * np.pi * (df.index.dayofyear - 1) / 365.25
+    df["day_of_year_sin"] = np.sin(day_angle)
+    df["day_of_year_cos"] = np.cos(day_angle)
+
     if "wind_direction_deg" in df.columns:
         direction_radians = np.deg2rad(df["wind_direction_deg"] % 360)
         df["wind_direction_sin"] = np.sin(direction_radians)
@@ -42,4 +46,10 @@ def select_features(df):
     return df[features]
 
 def clean_data(df):
+    df = df.copy()
+    df = df.replace([np.inf, -np.inf], np.nan)
+
+    if "pv_total_kWh" in df.columns:
+        df["pv_total_kWh"] = df["pv_total_kWh"].clip(lower=0)
+
     return df.interpolate().bfill().ffill()
