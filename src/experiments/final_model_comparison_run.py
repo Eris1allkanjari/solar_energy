@@ -475,7 +475,7 @@ def save_comparison(summaries):
         index=False
     )
     comparison_df[
-        ["model", "mae", "mape", "rmse", "smape"]
+        ["model", "mae","rmse", "mape",  "smape"]
     ].to_csv(
         RESULTS_DIR / "final_model_metrics.csv",
         index=False
