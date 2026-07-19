@@ -91,7 +91,8 @@ def evaluate_on_validation(
     seq_len,
     params,
     validation_steps=VALIDATION_STEPS,
-    seeds=RNN_SEEDS
+    seeds=RNN_SEEDS,
+    return_predictions=False
 ):
     config = ExperimentConfig(
         params=params,
@@ -123,6 +124,7 @@ def evaluate_on_validation(
     ]
     seed_results = []
     best_epochs = []
+    seed_predictions = []
 
     seeds = tuple(seeds)
 
@@ -186,6 +188,7 @@ def evaluate_on_validation(
                 "val_smape": smape
             }
         )
+        seed_predictions.append(y_val_pred_rescaled)
         best_epochs.append(
             model.best_epoch
         )
@@ -208,7 +211,7 @@ def evaluate_on_validation(
             for result in seed_results
         )
 
-    return {
+    result = {
         "model": model_name,
         "seq_len": seq_len,
         "input_features": ",".join(df_proc.columns),
@@ -251,6 +254,17 @@ def evaluate_on_validation(
         "val_mape": metric_mean("val_mape"),
         "val_smape": metric_mean("val_smape")
     }
+
+    if return_predictions:
+        prediction_array = np.asarray(seed_predictions)
+        return result, {
+            "validation_index": validation_index,
+            "y_true": np.asarray(y_val_rescaled),
+            "seed_predictions": prediction_array,
+            "ensemble_prediction": prediction_array.mean(axis=0)
+        }
+
+    return result
 
 
 def tune_model(

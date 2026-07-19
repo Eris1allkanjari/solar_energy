@@ -142,7 +142,8 @@ def evaluate_on_validation(
     window_length,
     params,
     validation_steps=None,
-    refit_interval=AR_REFIT_INTERVAL
+    refit_interval=AR_REFIT_INTERVAL,
+    return_predictions=False
 ):
     config = ARExperimentConfig(
         params=params,
@@ -190,7 +191,7 @@ def evaluate_on_validation(
         y_pred=predictions
     )
 
-    return {
+    result = {
         "model": model_name,
         "seq_len": window_length,
         "order": str(config.ORDER),
@@ -227,6 +228,15 @@ def evaluate_on_validation(
         "val_mape": mape,
         "val_smape": smape
     }
+
+    if return_predictions:
+        return result, {
+            "validation_index": y_val_eval.index,
+            "y_true": y_val_eval.to_numpy(),
+            "ensemble_prediction": np.asarray(predictions)
+        }
+
+    return result
 
 
 def tune_ar_model(
