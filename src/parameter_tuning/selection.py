@@ -10,7 +10,10 @@ SELECTION_RMSE_KEY = "val_block_rmse_mean"
 
 
 def result_converged(result):
-    value = result.get("fit_converged", False)
+    value = result.get(
+        "forecast_valid",
+        result.get("fit_converged", False)
+    )
 
     if isinstance(value, str):
         return value.strip().lower() == "true"

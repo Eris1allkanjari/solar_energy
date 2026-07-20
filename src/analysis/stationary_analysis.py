@@ -1,7 +1,9 @@
 import pandas as pd
 from statsmodels.tsa.stattools import adfuller
 
+from src.configs.evaluation import TRAIN_RATIO
 from src.data.loader import load_dataset
+from src.data.preprocessing import clean_data
 from src.experiments.constants import ANALYSIS_RESULTS_DIR, DATA_FILE_PATH
 
 
@@ -55,16 +57,18 @@ def main():
        DATA_FILE_PATH
     )
 
-    # target variable
-
-    y = df["pv_total_kWh"].clip(lower=0)
-
-    # fill missing values
-
-    y = y.interpolate().bfill().ffill()
+    train_end = int(len(df) * TRAIN_RATIO)
+    training_df = clean_data(
+        df.iloc[:train_end][["pv_total_kWh"]]
+    )
+    y = training_df["pv_total_kWh"]
 
     result = run_adf_test(y)
     result["series"] = "pv_total_kWh"
+    result["data_scope"] = "training_only"
+    result["start"] = y.index[0]
+    result["end"] = y.index[-1]
+    result["observations"] = len(y)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = RESULTS_DIR / "stationarity_adf.csv"

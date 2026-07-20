@@ -11,6 +11,7 @@ import torch
 from src.configs.config import ExperimentConfig
 from src.configs.evaluation import (
     AR_REFIT_INTERVAL,
+    PV_QUALITY_THRESHOLD,
     TEST_OFFSET,
     VALIDATION_END_RATIO
 )
@@ -21,7 +22,9 @@ from src.experiments.final_model_comparison_run import (
     AR_MODELS,
     BASELINE_MODELS,
     NEURAL_MODELS,
+    attach_pv_quality,
     load_best_setting,
+    load_pv_quality,
     run_baseline
 )
 from src.experiments.parameter_tuning_run import get_model, prepare_dataframe
@@ -37,6 +40,7 @@ from src.parameter_tuning.tuner import (
     params_from_best_setting as neural_params_from_best_setting,
     parse_seeds
 )
+from src.training.evaluation import evaluate
 
 
 RESULTS_DIR = EFFICIENCY_RESULTS_DIR
@@ -198,7 +202,47 @@ def metric_values(result, ensemble=False):
     }
 
 
-def benchmark_neural(model_name, df_proc, args, repeat, metadata):
+def quality_metric_values(result):
+    observation_fraction = np.asarray(
+        result["pv_observation_fraction"]
+    )
+    mask = observation_fraction >= PV_QUALITY_THRESHOLD
+    y_true = np.asarray(result["y_test"])[mask]
+    seed_predictions = result.get("seed_predictions")
+
+    if seed_predictions is not None:
+        metrics = np.asarray(
+            [
+                evaluate(
+                    y_true,
+                    np.asarray(seed_prediction)[mask]
+                )
+                for seed_prediction in seed_predictions
+            ]
+        ).mean(axis=0)
+    else:
+        metrics = evaluate(
+            y_true,
+            np.asarray(result["y_pred"])[mask]
+        )
+    return {
+        "high_quality_samples": int(mask.sum()),
+        "high_quality_coverage": float(mask.mean()),
+        "high_quality_mae": metrics[0],
+        "high_quality_rmse": metrics[1],
+        "high_quality_mape": metrics[2],
+        "high_quality_smape": metrics[3]
+    }
+
+
+def benchmark_neural(
+    model_name,
+    df_proc,
+    quality_df,
+    args,
+    repeat,
+    metadata
+):
     selected_setting = load_best_setting(model_name)
     best_setting = dict(selected_setting)
     best_setting["seeds"] = ",".join(str(seed) for seed in args.seeds)
@@ -218,7 +262,8 @@ def benchmark_neural(model_name, df_proc, args, repeat, metadata):
         ),
         neural=True
     )
-    metrics = metric_values(result, ensemble=True)
+    result = attach_pv_quality(result, quality_df)
+    metrics = metric_values(result)
 
     return {
         "model": model_name,
@@ -237,12 +282,13 @@ def benchmark_neural(model_name, df_proc, args, repeat, metadata):
         "estimated_parameter_storage_mb": parameter_count * 4 / (1024 ** 2),
         "peak_gpu_memory_mb": peak_memory,
         **metrics,
+        **quality_metric_values(result),
         **metadata,
         "elapsed_seconds": elapsed
     }
 
 
-def benchmark_ar(model_name, df, args, repeat, metadata):
+def benchmark_ar(model_name, df, quality_df, args, repeat, metadata):
     best_setting = load_best_setting(model_name, autoregressive=True)
     parameter_count = ar_parameter_count(model_name, best_setting, df)
     result, elapsed, peak_memory = timed_call(
@@ -257,6 +303,7 @@ def benchmark_ar(model_name, df, args, repeat, metadata):
             refit_interval=AR_REFIT_INTERVAL
         )
     )
+    result = attach_pv_quality(result, quality_df)
 
     return {
         "model": model_name,
@@ -271,6 +318,7 @@ def benchmark_ar(model_name, df, args, repeat, metadata):
         "estimated_parameter_storage_mb": parameter_count * 8 / (1024 ** 2),
         "peak_gpu_memory_mb": peak_memory,
         **metric_values(result),
+        **quality_metric_values(result),
         **metadata,
         "elapsed_seconds": elapsed
     }
@@ -279,6 +327,7 @@ def benchmark_ar(model_name, df, args, repeat, metadata):
 def benchmark_baseline(
     model_name,
     df_proc,
+    quality_df,
     test_start_index,
     args,
     repeat,
@@ -292,6 +341,7 @@ def benchmark_baseline(
             test_steps=args.test_steps
         )
     )
+    result = attach_pv_quality(result, quality_df)
 
     return {
         "model": model_name,
@@ -306,6 +356,7 @@ def benchmark_baseline(
         "estimated_parameter_storage_mb": 0.0,
         "peak_gpu_memory_mb": peak_memory,
         **metric_values(result),
+        **quality_metric_values(result),
         **metadata,
         "elapsed_seconds": elapsed
     }
@@ -370,6 +421,20 @@ def summarize(raw_df):
                 "rmse": model_df["rmse"].mean(),
                 "mape": model_df["mape"].mean(),
                 "smape": model_df["smape"].mean(),
+                "high_quality_samples": first["high_quality_samples"],
+                "high_quality_coverage": first["high_quality_coverage"],
+                "high_quality_mae": model_df[
+                    "high_quality_mae"
+                ].mean(),
+                "high_quality_rmse": model_df[
+                    "high_quality_rmse"
+                ].mean(),
+                "high_quality_mape": model_df[
+                    "high_quality_mape"
+                ].mean(),
+                "high_quality_smape": model_df[
+                    "high_quality_smape"
+                ].mean(),
                 "metric_aggregation": first["metric_aggregation"],
                 "execution_device": first["execution_device"],
                 "execution_device_name": first["execution_device_name"],
@@ -441,6 +506,7 @@ def main():
     metadata = device_metadata()
     df = load_dataset(DATA_FILE_PATH)
     df_proc = prepare_dataframe(df)
+    quality_df = load_pv_quality()
     test_start_index = int(
         len(df_proc) * VALIDATION_END_RATIO
     ) + TEST_OFFSET
@@ -462,16 +528,27 @@ def main():
 
             if model_name in NEURAL_MODELS:
                 row = benchmark_neural(
-                    model_name, df_proc, args, repeat, metadata
+                    model_name,
+                    df_proc,
+                    quality_df,
+                    args,
+                    repeat,
+                    metadata
                 )
             elif model_name in AR_MODELS:
                 row = benchmark_ar(
-                    model_name, df, args, repeat, metadata
+                    model_name,
+                    df,
+                    quality_df,
+                    args,
+                    repeat,
+                    metadata
                 )
             else:
                 row = benchmark_baseline(
                     model_name,
                     df_proc,
+                    quality_df,
                     test_start_index,
                     args,
                     repeat,

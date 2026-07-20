@@ -10,6 +10,7 @@ from src.configs.evaluation import (
     MIN_SEASONAL_WINDOW,
     MAPE_PRODUCTION_THRESHOLD,
     NEURAL_SELECTION_PROTOCOL,
+    PV_QUALITY_THRESHOLD,
     SELECTION_PROTOCOL,
     TEST_OFFSET,
     TEST_STEPS,
@@ -22,7 +23,8 @@ from src.experiments.constants import (
     AR_TUNING_RESULTS_DIR,
     DATA_FILE_PATH,
     FINAL_COMPARISON_RESULTS_DIR,
-    NEURAL_TUNING_RESULTS_DIR
+    NEURAL_TUNING_RESULTS_DIR,
+    PV_QUALITY_HOURLY_PATH
 )
 from src.experiments.parameter_tuning_run import get_model, prepare_dataframe
 from src.parameter_tuning.ar_tuner import final_test as final_ar_test
@@ -112,7 +114,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_existing_summaries(models_to_replace):
+def load_existing_summaries(
+    models_to_replace,
+    test_start,
+    test_end,
+    test_steps
+):
     comparison_path = RESULTS_DIR / "final_model_comparison.csv"
 
     if not comparison_path.exists():
@@ -130,41 +137,101 @@ def load_existing_summaries(models_to_replace):
     if missing_columns:
         return []
 
-    comparison_df = comparison_df[
-        comparison_df["selection_protocol"] == FINAL_COMPARISON_PROTOCOL
-    ]
-
-    if comparison_df.empty:
-        return []
-
     resume_columns = {
         "state_context_steps",
         "test_offset",
+        "test_steps",
+        "test_start",
+        "test_end",
         "training_data",
-        "tuning_protocol"
+        "tuning_protocol",
+        "metric_aggregation",
+        "high_quality_mae"
     }
 
     if resume_columns.difference(comparison_df.columns):
+        if set(models_to_replace) != set(ALL_MODELS):
+            raise RuntimeError(
+                "existing final results are stale; rerun all models under "
+                "the current comparison protocol"
+            )
         return []
 
-    comparison_df = comparison_df[
-        pd.to_numeric(
+    compatible = (
+        comparison_df["selection_protocol"].eq(
+            FINAL_COMPARISON_PROTOCOL
+        )
+        & pd.to_numeric(
             comparison_df["test_offset"],
             errors="coerce"
-        ) == TEST_OFFSET
-    ]
-    comparison_df = comparison_df[
-        comparison_df["training_data"].isin(
+        ).eq(TEST_OFFSET)
+        & pd.to_numeric(
+            comparison_df["test_steps"],
+            errors="coerce"
+        ).eq(test_steps)
+        & pd.to_datetime(comparison_df["test_start"]).eq(test_start)
+        & pd.to_datetime(comparison_df["test_end"]).eq(test_end)
+        & comparison_df["training_data"].isin(
             ["train_validation", "not_applicable"]
         )
-    ]
+    )
+    incompatible_preserved_models = set(
+        comparison_df.loc[
+            ~compatible
+            & ~comparison_df["model"].isin(models_to_replace),
+            "model"
+        ]
+    )
+
+    if incompatible_preserved_models:
+        raise RuntimeError(
+            "existing final results use an incompatible protocol for: "
+            f"{sorted(incompatible_preserved_models)}. Rerun all models."
+        )
+
     comparison_df = comparison_df[
-        ~comparison_df["model"].isin(models_to_replace)
+        compatible & ~comparison_df["model"].isin(models_to_replace)
     ]
 
     return comparison_df.to_dict(
         orient="records"
     )
+
+
+def load_pv_quality():
+    if not PV_QUALITY_HOURLY_PATH.exists():
+        raise FileNotFoundError(
+            "missing PV quality audit. Run "
+            "python -m src.analysis.pv_data_quality_analysis first."
+        )
+
+    quality_df = pd.read_csv(PV_QUALITY_HOURLY_PATH)
+    quality_df["time"] = pd.to_datetime(
+        quality_df["time"],
+        utc=True
+    ).dt.tz_localize(None)
+    quality_df = quality_df.set_index("time")
+
+    if quality_df.index.duplicated().any():
+        raise ValueError("PV quality audit contains duplicate timestamps")
+
+    return quality_df
+
+
+def attach_pv_quality(final_result, quality_df):
+    test_index = pd.DatetimeIndex(final_result["test_index"])
+    quality = quality_df.reindex(test_index)
+
+    if quality["observation_fraction"].isna().any():
+        raise ValueError("PV quality audit does not cover the full test period")
+
+    final_result["pv_observation_fraction"] = quality[
+        "observation_fraction"
+    ].to_numpy()
+    final_result["pv_fully_missing_hour"] = quality[
+        "fully_missing_hour"
+    ].astype(bool).to_numpy()
+    return final_result
 
 
 def validate_tuning_protocol(
@@ -320,6 +387,40 @@ def result_summary(
     percentage_metric_samples = int(
         (y_test > MAPE_PRODUCTION_THRESHOLD).sum()
     )
+    primary_prediction = np.asarray(final_result["y_pred"])
+    observation_fraction = np.asarray(
+        final_result["pv_observation_fraction"]
+    )
+    high_quality_mask = observation_fraction >= PV_QUALITY_THRESHOLD
+
+    if not high_quality_mask.any():
+        raise RuntimeError("no high-quality PV observations in test period")
+
+    seed_predictions = final_result.get("seed_predictions")
+
+    if seed_predictions is not None:
+        high_quality_metric_values = np.asarray(
+            [
+                evaluate(
+                    y_test[high_quality_mask],
+                    np.asarray(seed_prediction)[high_quality_mask]
+                )
+                for seed_prediction in seed_predictions
+            ]
+        )
+        high_quality_metrics = high_quality_metric_values.mean(axis=0)
+        high_quality_metric_std = high_quality_metric_values.std(
+            axis=0,
+            ddof=0
+        )
+    else:
+        high_quality_metrics = np.asarray(
+            evaluate(
+                y_test[high_quality_mask],
+                primary_prediction[high_quality_mask]
+            )
+        )
+        high_quality_metric_std = np.full(4, np.nan)
 
     return {
         "model": final_result["model"],
@@ -373,6 +474,7 @@ def result_summary(
         "seeds": final_result.get("seeds"),
         "seed_count": final_result.get("seed_count"),
         "refit_epochs": final_result.get("refit_epochs"),
+        "refit_epoch_median": final_result.get("refit_epoch_median"),
         "mae_by_seed": final_result.get("mae_by_seed"),
         "rmse_by_seed": final_result.get("rmse_by_seed"),
         "order": final_result.get("order"),
@@ -381,6 +483,19 @@ def result_summary(
         "input_features": final_result.get("input_features"),
         "feature_count": final_result.get("feature_count"),
         "max_iter": final_result.get("max_iter"),
+        "final_aic": final_result.get("final_aic"),
+        "final_bic": final_result.get("final_bic"),
+        "final_fit_converged": final_result.get("final_fit_converged"),
+        "forecast_valid": final_result.get("forecast_valid"),
+        "fit_attempt_count": final_result.get("fit_attempt_count"),
+        "fit_retry_count": final_result.get("fit_retry_count"),
+        "fit_failure_count": final_result.get("fit_failure_count"),
+        "forecast_fallback_count": final_result.get(
+            "forecast_fallback_count"
+        ),
+        "state_update_failure_count": final_result.get(
+            "state_update_failure_count"
+        ),
         "tuning_aic": best_setting.get("aic"),
         "tuning_bic": best_setting.get("bic"),
         "tuning_fit_converged": best_setting.get("fit_converged"),
@@ -390,6 +505,20 @@ def result_summary(
         "percentage_metric_coverage": (
             percentage_metric_samples / len(y_test)
         ),
+        "pv_quality_threshold": PV_QUALITY_THRESHOLD,
+        "high_quality_samples": int(high_quality_mask.sum()),
+        "high_quality_coverage": float(high_quality_mask.mean()),
+        "fully_missing_target_hours": int(
+            np.asarray(final_result["pv_fully_missing_hour"]).sum()
+        ),
+        "high_quality_mae": high_quality_metrics[0],
+        "high_quality_mae_std": high_quality_metric_std[0],
+        "high_quality_rmse": high_quality_metrics[1],
+        "high_quality_rmse_std": high_quality_metric_std[1],
+        "high_quality_mape": high_quality_metrics[2],
+        "high_quality_mape_std": high_quality_metric_std[2],
+        "high_quality_smape": high_quality_metrics[3],
+        "high_quality_smape_std": high_quality_metric_std[3],
         "mae": final_result["mae"],
         "mae_std": final_result.get("mae_std"),
         "rmse": final_result["rmse"],
@@ -422,6 +551,12 @@ def save_model_result(final_result, summary):
             "y_true": np.asarray(final_result["y_test"]),
             "y_pred": np.asarray(final_result["y_pred"])
         }
+    )
+    prediction_df["pv_observation_fraction"] = np.asarray(
+        final_result["pv_observation_fraction"]
+    )
+    prediction_df["pv_fully_missing_hour"] = np.asarray(
+        final_result["pv_fully_missing_hour"]
     )
     prediction_df["absolute_error"] = np.abs(
         prediction_df["y_true"] - prediction_df["y_pred"]
@@ -465,6 +600,22 @@ def save_comparison(summaries):
         comparison_df["rmse_skill_vs_persistence"] = (
             1 - comparison_df["rmse"] / persistence_rmse
         )
+        persistence_high_quality_mae = float(
+            persistence_rows.iloc[0]["high_quality_mae"]
+        )
+        persistence_high_quality_rmse = float(
+            persistence_rows.iloc[0]["high_quality_rmse"]
+        )
+        comparison_df["high_quality_mae_skill_vs_persistence"] = (
+            1
+            - comparison_df["high_quality_mae"]
+            / persistence_high_quality_mae
+        )
+        comparison_df["high_quality_rmse_skill_vs_persistence"] = (
+            1
+            - comparison_df["high_quality_rmse"]
+            / persistence_high_quality_rmse
+        )
 
     comparison_df = comparison_df.sort_values(
         "mae"
@@ -478,6 +629,18 @@ def save_comparison(summaries):
         ["model", "mae","rmse", "mape",  "smape"]
     ].to_csv(
         RESULTS_DIR / "final_model_metrics.csv",
+        index=False
+    )
+    comparison_df[
+        [
+            "model",
+            "high_quality_mae",
+            "high_quality_rmse",
+            "high_quality_mape",
+            "high_quality_smape"
+        ]
+    ].sort_values("high_quality_mae").to_csv(
+        RESULTS_DIR / "final_model_high_quality_metrics.csv",
         index=False
     )
 
@@ -545,24 +708,27 @@ def main():
     df_proc = prepare_dataframe(
         df
     )
+    quality_df = load_pv_quality()
 
     n_raw = len(df_proc)
     test_split_start = int(n_raw * VALIDATION_END_RATIO)
     test_start_index = test_split_start + TEST_OFFSET
-    test_df = df_proc.iloc[
-        test_start_index:test_start_index + FINAL_TEST_STEPS
-    ]
+    test_df = df_proc.iloc[test_start_index:]
 
-    if len(test_df) < FINAL_TEST_STEPS:
-        raise RuntimeError(
-            f"requested {FINAL_TEST_STEPS} test steps, "
-            f"but only {len(test_df)} are available"
-        )
+    if FINAL_TEST_STEPS is not None:
+        test_df = test_df.iloc[:FINAL_TEST_STEPS]
+
+    if test_df.empty:
+        raise RuntimeError("the final test period is empty")
 
     test_start = test_df.index[0]
     test_end = test_df.index[-1]
+    final_test_steps = len(test_df)
     summaries = load_existing_summaries(
-        models_to_replace=selected_models
+        models_to_replace=selected_models,
+        test_start=test_start,
+        test_end=test_end,
+        test_steps=final_test_steps
     )
     percentage_metric_samples = int(
         (test_df["pv_total_kWh"] > MAPE_PRODUCTION_THRESHOLD).sum()
@@ -592,9 +758,10 @@ def main():
             get_model=get_model,
             df_proc=df_proc,
             best_setting=best_setting,
-            test_steps=FINAL_TEST_STEPS,
+            test_steps=final_test_steps,
             test_offset=TEST_OFFSET
         )
+        final_result = attach_pv_quality(final_result, quality_df)
 
         summary = result_summary(
             final_result=final_result,
@@ -631,11 +798,12 @@ def main():
             build_model=get_ar_model_builder(model_name),
             df=df,
             best_setting=best_setting,
-            test_steps=FINAL_TEST_STEPS,
+            test_steps=final_test_steps,
             test_offset=TEST_OFFSET,
             include_validation_in_training=True,
             refit_interval=AR_REFIT_INTERVAL
         )
+        final_result = attach_pv_quality(final_result, quality_df)
 
         summary = result_summary(
             final_result=final_result,
@@ -663,8 +831,9 @@ def main():
             model_name=model_name,
             df_proc=df_proc,
             test_start_index=test_start_index,
-            test_steps=FINAL_TEST_STEPS
+            test_steps=final_test_steps
         )
+        final_result = attach_pv_quality(final_result, quality_df)
         summary = result_summary(
             final_result=final_result,
             best_setting=baseline_setting(),

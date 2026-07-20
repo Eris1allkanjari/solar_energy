@@ -6,6 +6,7 @@ import pandas as pd
 
 from src.configs.evaluation import (
     AR_REFIT_INTERVAL,
+    PV_QUALITY_THRESHOLD,
     RNN_SEEDS,
     VALIDATION_STEPS
 )
@@ -20,7 +21,10 @@ from src.experiments.constants import (
     DATA_FILE_PATH,
     FEATURE_SIGNIFICANCE_RESULTS_DIR
 )
-from src.experiments.final_model_comparison_run import load_best_setting
+from src.experiments.final_model_comparison_run import (
+    load_best_setting,
+    load_pv_quality
+)
 from src.experiments.parameter_tuning_run import get_model
 from src.parameter_tuning.ar_tuner import (
     evaluate_on_validation as evaluate_ar_validation,
@@ -36,7 +40,7 @@ from src.training.evaluation import evaluate
 
 RESULTS_DIR = FEATURE_SIGNIFICANCE_RESULTS_DIR
 MODEL_CHOICES = ["lstm", "gru", "arimax", "sarimax"]
-EXPERIMENT_PROTOCOL = "lofo_block_bootstrap_holm_v1"
+EXPERIMENT_PROTOCOL = "lofo_quality_seed_mean_bootstrap_holm_v2"
 
 FEATURE_GROUPS = {
     "solar_radiation": ["solar_radiation_Wm2"],
@@ -227,11 +231,65 @@ def evaluate_ar_variant(
     return result, predictions
 
 
-def ensemble_metrics(predictions):
+def prediction_metrics(predictions, mask=None):
+    y_true = np.asarray(predictions["y_true"])
+
+    if mask is None:
+        mask = np.ones(len(y_true), dtype=bool)
+
+    seed_predictions = predictions.get("seed_predictions")
+
+    if seed_predictions is not None:
+        metric_values = np.asarray(
+            [
+                evaluate(
+                    y_true[mask],
+                    np.asarray(seed_prediction)[mask]
+                )
+                for seed_prediction in seed_predictions
+            ]
+        )
+        return tuple(metric_values.mean(axis=0))
+
     return evaluate(
-        predictions["y_true"],
-        predictions["ensemble_prediction"]
+        y_true[mask],
+        np.asarray(predictions["ensemble_prediction"])[mask]
     )
+
+
+def mean_absolute_error_by_timestamp(predictions):
+    y_true = np.asarray(predictions["y_true"])
+    seed_predictions = predictions.get("seed_predictions")
+
+    if seed_predictions is not None:
+        return np.mean(
+            np.abs(np.asarray(seed_predictions) - y_true[None, :]),
+            axis=0
+        )
+
+    return np.abs(
+        np.asarray(predictions["ensemble_prediction"]) - y_true
+    )
+
+
+def attach_validation_quality(predictions, quality_df):
+    validation_index = pd.DatetimeIndex(
+        predictions["validation_index"]
+    )
+    quality = quality_df.reindex(validation_index)
+
+    if quality["observation_fraction"].isna().any():
+        raise ValueError(
+            "PV quality audit does not cover the full validation period"
+        )
+
+    predictions["pv_observation_fraction"] = quality[
+        "observation_fraction"
+    ].to_numpy()
+    predictions["high_quality_mask"] = (
+        predictions["pv_observation_fraction"] >= PV_QUALITY_THRESHOLD
+    )
+    return predictions
 
 
 def base_row(
@@ -244,7 +302,14 @@ def base_row(
     predictions,
     seeds
 ):
-    mae, rmse, mape, smape = ensemble_metrics(predictions)
+    all_mae, all_rmse, all_mape, all_smape = prediction_metrics(
+        predictions
+    )
+    quality_mask = predictions["high_quality_mask"]
+    mae, rmse, mape, smape = prediction_metrics(
+        predictions,
+        mask=quality_mask
+    )
 
     return {
         "model": model_name,
@@ -262,6 +327,9 @@ def base_row(
         "validation_start": predictions["validation_index"][0],
         "validation_end": predictions["validation_index"][-1],
         "validation_steps": len(predictions["y_true"]),
+        "pv_quality_threshold": PV_QUALITY_THRESHOLD,
+        "inference_samples": int(quality_mask.sum()),
+        "inference_coverage": float(quality_mask.mean()),
         "seeds": (
             ",".join(str(seed) for seed in seeds)
             if model_name in {"lstm", "gru"}
@@ -273,6 +341,10 @@ def base_row(
         "rmse": rmse,
         "mape": mape,
         "smape": smape,
+        "all_hour_mae": all_mae,
+        "all_hour_rmse": all_rmse,
+        "all_hour_mape": all_mape,
+        "all_hour_smape": all_smape,
         "delta_mae": np.nan,
         "delta_mae_percent": np.nan,
         "delta_mae_ci_lower": np.nan,
@@ -296,14 +368,21 @@ def compare_with_reference(
         row["effect_direction"] = "rejected_non_converged"
         return row
 
-    reference_error = np.abs(
-        reference_predictions["y_true"]
-        - reference_predictions["ensemble_prediction"]
+    reference_error = mean_absolute_error_by_timestamp(
+        reference_predictions
     )
-    variant_error = np.abs(
-        predictions["y_true"] - predictions["ensemble_prediction"]
-    )
-    loss_difference = variant_error - reference_error
+    variant_error = mean_absolute_error_by_timestamp(predictions)
+    quality_mask = reference_predictions["high_quality_mask"]
+
+    if not np.array_equal(
+        quality_mask,
+        predictions["high_quality_mask"]
+    ):
+        raise ValueError("feature variants use different quality masks")
+
+    loss_difference = (
+        variant_error - reference_error
+    )[quality_mask]
     lower, upper, p_value = moving_block_bootstrap(
         loss_difference=loss_difference,
         samples=bootstrap_samples,
@@ -382,7 +461,7 @@ def add_inference_metadata(row, args):
     return row
 
 
-def run_model(model_name, feature_df, args):
+def run_model(model_name, feature_df, quality_df, args):
     autoregressive = model_name in {"arimax", "sarimax"}
     best_setting = load_best_setting(
         model_name,
@@ -404,6 +483,10 @@ def run_model(model_name, feature_df, args):
         reference_result, reference_predictions = evaluator(
             model_name, feature_df, full_features, best_setting, args.seeds
         )
+    reference_predictions = attach_validation_quality(
+        reference_predictions,
+        quality_df
+    )
 
     reference_row = add_inference_metadata(
         base_row(
@@ -449,6 +532,7 @@ def run_model(model_name, feature_df, args):
                 best_setting,
                 args.seeds
             )
+        predictions = attach_validation_quality(predictions, quality_df)
 
         row = add_inference_metadata(
             base_row(
@@ -488,9 +572,10 @@ def main():
     args = parse_args()
     raw_df = load_dataset(DATA_FILE_PATH)
     feature_df = add_time_features(raw_df.copy())
+    quality_df = load_pv_quality()
 
     for model_name in args.models:
-        run_model(model_name, feature_df, args)
+        run_model(model_name, feature_df, quality_df, args)
 
 
 if __name__ == "__main__":

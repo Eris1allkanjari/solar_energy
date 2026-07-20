@@ -376,14 +376,29 @@ def parse_exog_features(value):
     ]
 
 
+def parse_bool(value):
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+
+        if normalized in {"true", "1", "yes"}:
+            return True
+
+        if normalized in {"false", "0", "no"}:
+            return False
+
+        raise ValueError(f"cannot parse boolean value: {value}")
+
+    return bool(value)
+
+
 def params_from_best_setting(best_setting):
     params = {
         "order": parse_tuple(best_setting["order"]),
         "max_iter": int(best_setting["max_iter"]),
-        "enforce_stationarity": bool(
+        "enforce_stationarity": parse_bool(
             best_setting["enforce_stationarity"]
         ),
-        "enforce_invertibility": bool(
+        "enforce_invertibility": parse_bool(
             best_setting["enforce_invertibility"]
         )
     }
@@ -495,7 +510,7 @@ def final_test(
             y_test_eval.index
         ]
 
-    predictions = rolling_forecast(
+    predictions, fit_diagnostics = rolling_forecast(
         build_model_fn=build_model,
         train=y_train_final,
         test=y_test_eval,
@@ -504,8 +519,15 @@ def final_test(
         exog_test=model_exog_test,
         refit_interval=refit_interval,
         context=state_context,
-        exog_context=model_exog_context
+        exog_context=model_exog_context,
+        return_diagnostics=True
     )
+
+    if not fit_diagnostics["forecast_valid"]:
+        raise RuntimeError(
+            f"final {model_name} forecast was not fully valid: "
+            f"{fit_diagnostics}"
+        )
 
     predictions = np.clip(
         predictions,
@@ -540,6 +562,19 @@ def final_test(
         ),
         "feature_count": 1 + len(getattr(config, "EXOG_FEATURES", [])),
         "max_iter": config.MAX_ITER,
+        "final_aic": fit_diagnostics["aic"],
+        "final_bic": fit_diagnostics["bic"],
+        "final_fit_converged": fit_diagnostics["fit_converged"],
+        "forecast_valid": fit_diagnostics["forecast_valid"],
+        "fit_attempt_count": fit_diagnostics["fit_attempt_count"],
+        "fit_retry_count": fit_diagnostics["fit_retry_count"],
+        "fit_failure_count": fit_diagnostics["fit_failure_count"],
+        "forecast_fallback_count": fit_diagnostics[
+            "forecast_fallback_count"
+        ],
+        "state_update_failure_count": fit_diagnostics[
+            "state_update_failure_count"
+        ],
         "exog_lag_steps": EXOG_LAG_STEPS if uses_exog(params) else None,
         "training_data": (
             "train_validation"

@@ -140,6 +140,13 @@ def rolling_forecast(
         "bic": np.nan,
         "fit_converged": False
     }
+    runtime_diagnostics = {
+        "fit_attempt_count": 0,
+        "fit_retry_count": 0,
+        "fit_failure_count": 0,
+        "forecast_fallback_count": 0,
+        "state_update_failure_count": 0
+    }
     context_applied = False
 
     max_history = getattr(config, "MAX_HISTORY", None)
@@ -194,6 +201,7 @@ def rolling_forecast(
             fitted=fitted,
             refit_interval=refit_interval
         ):
+            runtime_diagnostics["fit_attempt_count"] += 1
             try:
                 model = build_statistical_model(
                     build_model_fn=build_model_fn,
@@ -209,6 +217,7 @@ def rolling_forecast(
                 fit_diagnostics = get_fit_diagnostics(fitted)
 
             except Exception as first_error:
+                runtime_diagnostics["fit_retry_count"] += 1
                 print(
                     "rolling fit failed at "
                     f"step {t}; retrying with relaxed constraints: "
@@ -238,6 +247,8 @@ def rolling_forecast(
                     fit_diagnostics = get_fit_diagnostics(fitted)
 
                 except Exception as second_error:
+                    runtime_diagnostics["fit_failure_count"] += 1
+                    runtime_diagnostics["forecast_fallback_count"] += 1
                     if context is not None and not context_applied:
                         raise RuntimeError(
                             "unable to fit the model before applying state "
@@ -302,6 +313,7 @@ def rolling_forecast(
                 )
 
         except Exception as forecast_error:
+            runtime_diagnostics["forecast_fallback_count"] += 1
             print(
                 "rolling forecast failed at "
                 f"step {t}; using persistence fallback: "
@@ -337,6 +349,7 @@ def rolling_forecast(
                 )
 
             except Exception as append_error:
+                runtime_diagnostics["state_update_failure_count"] += 1
                 print(
                     "state update failed at "
                     f"step {t}; refitting on the next step: "
@@ -346,6 +359,16 @@ def rolling_forecast(
                 fitted = None
 
     if return_diagnostics:
-        return predictions, fit_diagnostics
+        forecast_valid = bool(
+            fit_diagnostics["fit_converged"]
+            and runtime_diagnostics["fit_failure_count"] == 0
+            and runtime_diagnostics["forecast_fallback_count"] == 0
+            and runtime_diagnostics["state_update_failure_count"] == 0
+        )
+        return predictions, {
+            **fit_diagnostics,
+            **runtime_diagnostics,
+            "forecast_valid": forecast_valid
+        }
 
     return predictions

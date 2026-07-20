@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from statsmodels.graphics.tsaplots import (
     plot_acf,
@@ -6,6 +7,8 @@ from statsmodels.graphics.tsaplots import (
 )
 
 from src.data.loader import load_dataset
+from src.data.preprocessing import clean_data
+from src.configs.evaluation import TRAIN_RATIO
 from src.experiments.constants import ANALYSIS_RESULTS_DIR, DATA_FILE_PATH
 
 RESULTS_DIR = ANALYSIS_RESULTS_DIR
@@ -33,7 +36,7 @@ def analyze_acf_pacf(
     )
 
     axes[0].set_title(
-        "autocorrelation function"
+        "training-set autocorrelation function"
     )
 
     # pacf plot
@@ -45,7 +48,7 @@ def analyze_acf_pacf(
     )
 
     axes[1].set_title(
-        "partial autocorrelation function"
+        "training-set partial autocorrelation function"
     )
 
     plt.tight_layout()
@@ -67,13 +70,11 @@ def main():
         DATA_FILE_PATH
     )
 
-    # target variable
-
-    y = df["pv_total_kWh"].clip(lower=0)
-
-    # fill missing values
-
-    y = y.interpolate().bfill().ffill()
+    train_end = int(len(df) * TRAIN_RATIO)
+    training_df = clean_data(
+        df.iloc[:train_end][["pv_total_kWh"]]
+    )
+    y = training_df["pv_total_kWh"]
 
     # analyze acf pacf
 
@@ -86,7 +87,22 @@ def main():
         output_path=output_path
     )
 
+    metadata_path = RESULTS_DIR / "acf_pacf_metadata.csv"
+    pd.DataFrame(
+        [
+            {
+                "series": "pv_total_kWh",
+                "data_scope": "training_only",
+                "start": y.index[0],
+                "end": y.index[-1],
+                "observations": len(y),
+                "lags": 168
+            }
+        ]
+    ).to_csv(metadata_path, index=False)
+
     print(f"saved plot to {output_path}")
+    print(f"saved metadata to {metadata_path}")
 
 
 if __name__ == "__main__":

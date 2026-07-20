@@ -328,6 +328,30 @@ def parse_seeds(value):
     )
 
 
+def parse_refit_epochs(value, seed_count, fallback):
+    if value is None:
+        return (fallback,) * seed_count
+
+    if isinstance(value, (tuple, list)):
+        epochs = tuple(int(epoch) for epoch in value)
+    else:
+        if pd.isna(value):
+            return (fallback,) * seed_count
+
+        epochs = tuple(
+            int(epoch.strip())
+            for epoch in str(value).split(",")
+            if epoch.strip()
+        )
+
+    if len(epochs) != seed_count:
+        raise ValueError(
+            "best_epochs must contain one value per random seed"
+        )
+
+    return epochs
+
+
 def params_from_best_setting(best_setting):
     return {
         "hidden_units_1": int(best_setting["hidden_units_1"]),
@@ -403,18 +427,24 @@ def final_test(
     seeds = parse_seeds(
         best_setting.get("seeds")
     )
-    refit_epochs = int(
+    fallback_refit_epoch = int(
         best_setting.get(
             "best_epoch",
             config.EPOCHS
         )
     )
+    refit_epochs = parse_refit_epochs(
+        best_setting.get("best_epochs"),
+        seed_count=len(seeds),
+        fallback=fallback_refit_epoch
+    )
     seed_predictions = []
     seed_metrics = []
 
-    for seed in seeds:
+    for seed, refit_epoch in zip(seeds, refit_epochs):
         print(
-            f"refitting {model_name} on train+validation, seed={seed}"
+            f"refitting {model_name} on train+validation, seed={seed}, "
+            f"epochs={refit_epoch}"
         )
         set_random_seed(seed)
         model = get_model(
@@ -430,7 +460,7 @@ def final_test(
             y_val=None,
             config=config,
             seed=seed,
-            epochs=refit_epochs
+            epochs=refit_epoch
         )
         y_pred = predict_model(
             model=model,
@@ -497,7 +527,10 @@ def final_test(
         "shuffle_training": True,
         "seeds": ",".join(str(seed) for seed in seeds),
         "seed_count": len(seeds),
-        "refit_epochs": refit_epochs,
+        "refit_epochs": ",".join(
+            str(epoch) for epoch in refit_epochs
+        ),
+        "refit_epoch_median": int(round(np.median(refit_epochs))),
         "mae_by_seed": ",".join(
             f"{value:.10g}"
             for value in metric_values[:, 0]
@@ -521,6 +554,7 @@ def final_test(
         "ensemble_rmse": ensemble_rmse,
         "ensemble_mape": ensemble_mape,
         "ensemble_smape": ensemble_smape,
+        "seed_predictions": np.asarray(seed_predictions),
         "test_index": test_df.index,
         "y_test": y_test_rescaled,
         "y_pred": y_pred_rescaled
