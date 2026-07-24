@@ -31,6 +31,7 @@ from src.parameter_tuning.ar_tuner import final_test as final_ar_test
 from src.parameter_tuning.plots import plot_real_vs_predicted
 from src.parameter_tuning.selection import (
     SELECTION_MAE_KEY,
+    calculate_monthly_validation_metrics,
     select_robust_candidate
 )
 from src.parameter_tuning.tuner import final_test as final_neural_test
@@ -396,6 +397,22 @@ def result_summary(
     if not high_quality_mask.any():
         raise RuntimeError("no high-quality PV observations in test period")
 
+    # Rolling-origin robustness: score the one-step-ahead predictions per
+    # calendar-month block instead of a single pooled aggregate, so the model
+    # ranking can be judged against block-to-block variation rather than one
+    # slice of the year.
+    test_index = pd.DatetimeIndex(final_result["test_index"])
+    test_block_metrics = calculate_monthly_validation_metrics(
+        index=test_index,
+        y_true=y_test,
+        y_pred=primary_prediction
+    )
+    high_quality_block_metrics = calculate_monthly_validation_metrics(
+        index=test_index[high_quality_mask],
+        y_true=y_test[high_quality_mask],
+        y_pred=primary_prediction[high_quality_mask]
+    )
+
     seed_predictions = final_result.get("seed_predictions")
 
     if seed_predictions is not None:
@@ -519,6 +536,26 @@ def result_summary(
         "high_quality_mape_std": high_quality_metric_std[2],
         "high_quality_smape": high_quality_metrics[3],
         "high_quality_smape_std": high_quality_metric_std[3],
+        "test_blocks": test_block_metrics["validation_blocks"],
+        "test_block_mae_mean": test_block_metrics["val_block_mae_mean"],
+        "test_block_mae_std": test_block_metrics["val_block_mae_std"],
+        "test_block_rmse_mean": test_block_metrics["val_block_rmse_mean"],
+        "test_block_rmse_std": test_block_metrics["val_block_rmse_std"],
+        "high_quality_test_blocks": high_quality_block_metrics[
+            "validation_blocks"
+        ],
+        "high_quality_test_block_mae_mean": high_quality_block_metrics[
+            "val_block_mae_mean"
+        ],
+        "high_quality_test_block_mae_std": high_quality_block_metrics[
+            "val_block_mae_std"
+        ],
+        "high_quality_test_block_rmse_mean": high_quality_block_metrics[
+            "val_block_rmse_mean"
+        ],
+        "high_quality_test_block_rmse_std": high_quality_block_metrics[
+            "val_block_rmse_std"
+        ],
         "mae": final_result["mae"],
         "mae_std": final_result.get("mae_std"),
         "rmse": final_result["rmse"],
@@ -616,6 +653,12 @@ def save_comparison(summaries):
             - comparison_df["high_quality_rmse"]
             / persistence_high_quality_rmse
         )
+        persistence_block_mae = float(
+            persistence_rows.iloc[0]["test_block_mae_mean"]
+        )
+        comparison_df["test_block_mae_skill_vs_persistence"] = (
+            1 - comparison_df["test_block_mae_mean"] / persistence_block_mae
+        )
 
     comparison_df = comparison_df.sort_values(
         "mae"
@@ -641,6 +684,21 @@ def save_comparison(summaries):
         ]
     ].sort_values("high_quality_mae").to_csv(
         RESULTS_DIR / "final_model_high_quality_metrics.csv",
+        index=False
+    )
+    comparison_df[
+        [
+            "model",
+            "test_blocks",
+            "test_block_mae_mean",
+            "test_block_mae_std",
+            "test_block_rmse_mean",
+            "test_block_rmse_std",
+            "high_quality_test_block_mae_mean",
+            "high_quality_test_block_mae_std"
+        ]
+    ].sort_values("test_block_mae_mean").to_csv(
+        RESULTS_DIR / "final_model_block_metrics.csv",
         index=False
     )
 

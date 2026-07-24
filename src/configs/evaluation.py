@@ -13,6 +13,6 @@ RNN_SEEDS = (42, 123, 2026)
 MAPE_PRODUCTION_THRESHOLD = 5.0
 PV_QUALITY_THRESHOLD = 0.50
 
-SELECTION_PROTOCOL = "monthly_blocks_converged_bic_lag1_v5"
-NEURAL_SELECTION_PROTOCOL = "monthly_blocks_seeded_expanded_features_v5"
-FINAL_COMPARISON_PROTOCOL = "full_test_seed_mean_quality_v7"
+SELECTION_PROTOCOL = "monthly_blocks_converged_bic_lag1_causal_v6"
+NEURAL_SELECTION_PROTOCOL = "monthly_blocks_seeded_split_scaled_features_v6"
+FINAL_COMPARISON_PROTOCOL = "rolling_origin_seed_mean_quality_v8"

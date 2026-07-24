@@ -2,8 +2,6 @@ import itertools
 import numpy as np
 import pandas as pd
 
-from sklearn.preprocessing import MinMaxScaler
-
 from src.configs.evaluation import (
     NEURAL_SELECTION_PROTOCOL,
     RNN_SEEDS,
@@ -23,7 +21,7 @@ from src.parameter_tuning.selection import (
     calculate_monthly_validation_metrics,
     select_robust_candidate
 )
-from src.utils.scaler import inverse_target
+from src.utils.scaler import TargetFeatureScaler, inverse_target
 
 
 def generate_param_combinations(param_grid):
@@ -46,7 +44,7 @@ def prepare_data_for_l(
 
     train_df = df_proc.iloc[:train_end]
     val_df = df_proc.iloc[train_end:val_end]
-    scaler = MinMaxScaler()
+    scaler = TargetFeatureScaler()
 
     train_scaled = scaler.fit_transform(train_df)
 
@@ -388,7 +386,7 @@ def final_test(
     n_raw = len(df_proc)
     val_end = int(n_raw * VALIDATION_END_RATIO)
     train_validation_df = df_proc.iloc[:val_end]
-    scaler = MinMaxScaler()
+    scaler = TargetFeatureScaler()
     train_validation_scaled = scaler.fit_transform(
         train_validation_df
     )

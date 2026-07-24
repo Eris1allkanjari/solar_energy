@@ -47,7 +47,8 @@ def generate_param_combinations(param_grid):
 
 def prepare_ar_data(df):
     y = df["pv_total_kWh"].clip(lower=0)
-    y = y.interpolate().bfill().ffill()
+
+    y = y.ffill().bfill()
 
     exog = df.drop(
         columns=["pv_total_kWh"],
@@ -59,7 +60,7 @@ def prepare_ar_data(df):
         np.nan
     )
 
-    exog = exog.interpolate().bfill().ffill()
+    exog = exog.ffill().bfill()
     exog_unlagged = exog.copy()
     exog = exog.shift(EXOG_LAG_STEPS)
     exog.iloc[:EXOG_LAG_STEPS] = exog_unlagged.iloc[:EXOG_LAG_STEPS]

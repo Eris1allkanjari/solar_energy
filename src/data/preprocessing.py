@@ -52,4 +52,10 @@ def clean_data(df):
     if "pv_total_kWh" in df.columns:
         df["pv_total_kWh"] = df["pv_total_kWh"].clip(lower=0)
 
-    return df.interpolate().bfill().ffill()
+    # Impute causally. Forward-fill only carries past values across a gap, so
+    # imputation never reaches backward over a train/test boundary (a lookahead
+    # leak that two-sided interpolate() and bfill() would introduce). The
+    # trailing bfill only touches leading NaNs before the first observation,
+    # which sit at the very start of the series inside the training region, so
+    # it cannot pull later/test data backward into training.
+    return df.ffill().bfill()
