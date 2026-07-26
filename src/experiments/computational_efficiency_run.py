@@ -246,6 +246,10 @@ def benchmark_neural(
     selected_setting = load_best_setting(model_name)
     best_setting = dict(selected_setting)
     best_setting["seeds"] = ",".join(str(seed) for seed in args.seeds)
+
+    if len(args.seeds) != selected_seed_count(selected_setting):
+        best_setting.pop("best_epochs", None)
+
     parameter_count = neural_parameter_count(
         model_name,
         best_setting,
