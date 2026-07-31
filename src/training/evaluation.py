@@ -7,8 +7,7 @@ from src.configs.evaluation import MAPE_PRODUCTION_THRESHOLD
 def evaluate(
     y_true,
     y_pred,
-    production_threshold=MAPE_PRODUCTION_THRESHOLD,
-    epsilon=1e-6
+    production_threshold=MAPE_PRODUCTION_THRESHOLD
 ):
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
@@ -29,17 +28,7 @@ def evaluate(
             )
         ) * 100
 
-        smape = np.mean(
-            2 * np.abs(y_pred[mask] - y_true[mask]) /
-            (
-                np.abs(y_true[mask]) +
-                np.abs(y_pred[mask]) +
-                epsilon
-            )
-        ) * 100
-
     else:
         mape = np.nan
-        smape = np.nan
 
-    return mae, rmse, mape, smape
+    return mae, rmse, mape

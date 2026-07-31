@@ -186,7 +186,6 @@ def metric_values(result, ensemble=False):
             "mae": result["ensemble_mae"],
             "rmse": result["ensemble_rmse"],
             "mape": result["ensemble_mape"],
-            "smape": result["ensemble_smape"],
             "metric_aggregation": "seed_ensemble_mean"
         }
 
@@ -194,7 +193,6 @@ def metric_values(result, ensemble=False):
         "mae": result["mae"],
         "rmse": result["rmse"],
         "mape": result["mape"],
-        "smape": result["smape"],
         "metric_aggregation": result.get(
             "metric_aggregation",
             "deterministic"
@@ -230,8 +228,7 @@ def quality_metric_values(result):
         "high_quality_coverage": float(mask.mean()),
         "high_quality_mae": metrics[0],
         "high_quality_rmse": metrics[1],
-        "high_quality_mape": metrics[2],
-        "high_quality_smape": metrics[3]
+        "high_quality_mape": metrics[2]
     }
 
 
@@ -424,7 +421,6 @@ def summarize(raw_df):
                 "mae": model_df["mae"].mean(),
                 "rmse": model_df["rmse"].mean(),
                 "mape": model_df["mape"].mean(),
-                "smape": model_df["smape"].mean(),
                 "high_quality_samples": first["high_quality_samples"],
                 "high_quality_coverage": first["high_quality_coverage"],
                 "high_quality_mae": model_df[
@@ -435,9 +431,6 @@ def summarize(raw_df):
                 ].mean(),
                 "high_quality_mape": model_df[
                     "high_quality_mape"
-                ].mean(),
-                "high_quality_smape": model_df[
-                    "high_quality_smape"
                 ].mean(),
                 "metric_aggregation": first["metric_aggregation"],
                 "execution_device": first["execution_device"],

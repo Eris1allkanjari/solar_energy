@@ -38,7 +38,7 @@ def calculate_monthly_validation_metrics(
     monthly_metrics = []
 
     for _, month_df in metrics_df.groupby("month"):
-        mae, rmse, _, _ = evaluate(
+        mae, rmse, _ = evaluate(
             month_df["y_true"],
             month_df["y_pred"]
         )

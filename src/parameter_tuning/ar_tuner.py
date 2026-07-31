@@ -182,7 +182,7 @@ def evaluate_on_validation(
         return_diagnostics=True
     )
 
-    mae, rmse, mape, smape = evaluate(
+    mae, rmse, mape = evaluate(
         y_val_eval,
         predictions
     )
@@ -226,8 +226,7 @@ def evaluate_on_validation(
         **block_metrics,
         "val_mae": mae,
         "val_rmse": rmse,
-        "val_mape": mape,
-        "val_smape": smape
+        "val_mape": mape
     }
 
     if return_predictions:
@@ -324,7 +323,6 @@ def tune_ar_model(
                     "val_mae": np.nan,
                     "val_rmse": np.nan,
                     "val_mape": np.nan,
-                    "val_smape": np.nan,
                     "error": str(e)
                 }
 
@@ -536,7 +534,7 @@ def final_test(
         None
     )
 
-    mae, rmse, mape, smape = evaluate(
+    mae, rmse, mape = evaluate(
         y_test_eval,
         predictions
     )
@@ -591,7 +589,6 @@ def final_test(
         "mae": mae,
         "rmse": rmse,
         "mape": mape,
-        "smape": smape,
         "test_index": y_test_eval.index,
         "y_test": y_test_eval.to_numpy(),
         "y_pred": np.asarray(predictions)

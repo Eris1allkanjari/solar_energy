@@ -168,7 +168,7 @@ def evaluate_on_validation(
             None
         )
 
-        mae, rmse, mape, smape = evaluate(
+        mae, rmse, mape = evaluate(
             y_val_rescaled,
             y_val_pred_rescaled
         )
@@ -182,8 +182,7 @@ def evaluate_on_validation(
                 **block_metrics,
                 "val_mae": mae,
                 "val_rmse": rmse,
-                "val_mape": mape,
-                "val_smape": smape
+                "val_mape": mape
             }
         )
         seed_predictions.append(y_val_pred_rescaled)
@@ -249,8 +248,7 @@ def evaluate_on_validation(
         "val_seed_rmse_values": metric_values_text("val_rmse"),
         "val_mae": metric_mean("val_mae"),
         "val_rmse": metric_mean("val_rmse"),
-        "val_mape": metric_mean("val_mape"),
-        "val_smape": metric_mean("val_smape")
+        "val_mape": metric_mean("val_mape")
     }
 
     if return_predictions:
@@ -492,15 +490,15 @@ def final_test(
         seed_predictions,
         axis=0
     )
-    ensemble_mae, ensemble_rmse, ensemble_mape, ensemble_smape = evaluate(
+    ensemble_mae, ensemble_rmse, ensemble_mape = evaluate(
         y_test_rescaled,
         y_pred_rescaled
     )
-    mae, rmse, mape, smape = np.mean(
+    mae, rmse, mape = np.mean(
         metric_values,
         axis=0
     )
-    mae_std, rmse_std, mape_std, smape_std = np.std(
+    mae_std, rmse_std, mape_std = np.std(
         metric_values,
         axis=0,
         ddof=0
@@ -546,12 +544,9 @@ def final_test(
         "rmse_std": rmse_std,
         "mape": mape,
         "mape_std": mape_std,
-        "smape": smape,
-        "smape_std": smape_std,
         "ensemble_mae": ensemble_mae,
         "ensemble_rmse": ensemble_rmse,
         "ensemble_mape": ensemble_mape,
-        "ensemble_smape": ensemble_smape,
         "seed_predictions": np.asarray(seed_predictions),
         "test_index": test_df.index,
         "y_test": y_test_rescaled,

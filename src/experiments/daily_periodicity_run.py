@@ -269,7 +269,7 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
             X_train.shape[2]
         )
         block_pred = np.clip(block_pred, 0, None)
-        mae, rmse, mape, smape = evaluate(block_true, block_pred)
+        mae, rmse, mape = evaluate(block_true, block_pred)
         block_rows.append(
             {
                 "block": block,
@@ -281,7 +281,6 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
                 "mae": mae,
                 "rmse": rmse,
                 "mape": mape,
-                "smape": smape,
                 "seed": seed,
                 "experiment_protocol": EXPERIMENT_PROTOCOL
             }
@@ -301,7 +300,7 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
         X_train.shape[2]
     )
     y_pred = np.clip(y_pred, 0, None)
-    mae, rmse, mape, smape = evaluate(y_true, y_pred)
+    mae, rmse, mape = evaluate(y_true, y_pred)
     monthly_metrics = calculate_monthly_validation_metrics(
         index=validation_index,
         y_true=y_true,
@@ -319,7 +318,6 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
         "val_mae": mae,
         "val_rmse": rmse,
         "val_mape": mape,
-        "val_smape": smape,
         "experiment_protocol": EXPERIMENT_PROTOCOL
     }
     return summary, block_rows

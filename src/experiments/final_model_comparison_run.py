@@ -437,7 +437,7 @@ def result_summary(
                 primary_prediction[high_quality_mask]
             )
         )
-        high_quality_metric_std = np.full(4, np.nan)
+        high_quality_metric_std = np.full(3, np.nan)
 
     return {
         "model": final_result["model"],
@@ -534,8 +534,6 @@ def result_summary(
         "high_quality_rmse_std": high_quality_metric_std[1],
         "high_quality_mape": high_quality_metrics[2],
         "high_quality_mape_std": high_quality_metric_std[2],
-        "high_quality_smape": high_quality_metrics[3],
-        "high_quality_smape_std": high_quality_metric_std[3],
         "test_blocks": test_block_metrics["validation_blocks"],
         "test_block_mae_mean": test_block_metrics["val_block_mae_mean"],
         "test_block_mae_std": test_block_metrics["val_block_mae_std"],
@@ -562,12 +560,9 @@ def result_summary(
         "rmse_std": final_result.get("rmse_std"),
         "mape": final_result["mape"],
         "mape_std": final_result.get("mape_std"),
-        "smape": final_result["smape"],
-        "smape_std": final_result.get("smape_std"),
         "ensemble_mae": final_result.get("ensemble_mae"),
         "ensemble_rmse": final_result.get("ensemble_rmse"),
-        "ensemble_mape": final_result.get("ensemble_mape"),
-        "ensemble_smape": final_result.get("ensemble_smape")
+        "ensemble_mape": final_result.get("ensemble_mape")
     }
 
 
@@ -669,7 +664,7 @@ def save_comparison(summaries):
         index=False
     )
     comparison_df[
-        ["model", "mae","rmse", "mape",  "smape"]
+        ["model", "mae", "rmse", "mape"]
     ].to_csv(
         RESULTS_DIR / "final_model_metrics.csv",
         index=False
@@ -679,8 +674,7 @@ def save_comparison(summaries):
             "model",
             "high_quality_mae",
             "high_quality_rmse",
-            "high_quality_mape",
-            "high_quality_smape"
+            "high_quality_mape"
         ]
     ].sort_values("high_quality_mae").to_csv(
         RESULTS_DIR / "final_model_high_quality_metrics.csv",
@@ -715,7 +709,7 @@ def run_baseline(model_name, df_proc, test_start_index, test_steps):
     ]
     y_pred = target.shift(lag).loc[y_test.index].to_numpy()
     y_pred = np.clip(y_pred, 0, None)
-    mae, rmse, mape, smape = evaluate(y_test, y_pred)
+    mae, rmse, mape = evaluate(y_test, y_pred)
 
     return {
         "model": model_name,
@@ -728,7 +722,6 @@ def run_baseline(model_name, df_proc, test_start_index, test_steps):
         "mae": mae,
         "rmse": rmse,
         "mape": mape,
-        "smape": smape,
         "test_index": y_test.index,
         "y_test": y_test.to_numpy(),
         "y_pred": y_pred

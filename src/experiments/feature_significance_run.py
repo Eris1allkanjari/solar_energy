@@ -302,11 +302,11 @@ def base_row(
     predictions,
     seeds
 ):
-    all_mae, all_rmse, all_mape, all_smape = prediction_metrics(
+    all_mae, all_rmse, all_mape = prediction_metrics(
         predictions
     )
     quality_mask = predictions["high_quality_mask"]
-    mae, rmse, mape, smape = prediction_metrics(
+    mae, rmse, mape = prediction_metrics(
         predictions,
         mask=quality_mask
     )
@@ -340,11 +340,9 @@ def base_row(
         "mae": mae,
         "rmse": rmse,
         "mape": mape,
-        "smape": smape,
         "all_hour_mae": all_mae,
         "all_hour_rmse": all_rmse,
         "all_hour_mape": all_mape,
-        "all_hour_smape": all_smape,
         "delta_mae": np.nan,
         "delta_mae_percent": np.nan,
         "delta_mae_ci_lower": np.nan,
