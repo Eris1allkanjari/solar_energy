@@ -332,6 +332,68 @@ def plot_forecast_zoom_all_models(
     plt.close(figure)
 
 
+def plot_periodicity_ablation(
+    hourly_errors,
+    labels,
+    output_path=None,
+    title="effect of removing the time-of-day features",
+    show=False
+):
+    """Mean absolute error by hour of day, with and without time features.
+
+    A periodicity ablation should show its effect as a function of the time of
+    day, so plotting MAE per hour makes visible whether the loss concentrates
+    around sunrise/sunset (when knowing the clock matters most) rather than
+    being spread evenly.
+    """
+    figure, (error_axes, delta_axes) = plt.subplots(
+        2,
+        1,
+        figsize=(11, 8),
+        sharex=True,
+        gridspec_kw={"height_ratios": [2, 1]}
+    )
+
+    hours = np.arange(24)
+
+    for label, errors in zip(labels, hourly_errors):
+        error_axes.plot(
+            hours,
+            errors,
+            marker="o",
+            markersize=4,
+            label=label
+        )
+
+    error_axes.set_ylabel("MAE (kWh)")
+    error_axes.set_title(title)
+    error_axes.grid(True, alpha=0.3)
+    error_axes.legend()
+
+    delta = np.asarray(hourly_errors[1]) - np.asarray(hourly_errors[0])
+    colors = ["#d62728" if value > 0 else "#2ca02c" for value in delta]
+    delta_axes.bar(hours, delta, color=colors)
+    delta_axes.axhline(0, color="black", linewidth=0.8)
+    delta_axes.set_xlabel("hour of day")
+    delta_axes.set_ylabel("MAE change (kWh)")
+    delta_axes.set_title(
+        "positive = worse without the time features"
+    )
+    delta_axes.set_xticks(hours)
+    delta_axes.grid(True, alpha=0.3, axis="y")
+
+    figure.tight_layout()
+
+    if output_path is not None:
+        ensure_output_dir(output_path)
+        figure.savefig(output_path, dpi=300)
+
+    if show:
+        plt.show()
+
+    plt.close(figure)
+
+
 def plot_feature_ablation(results, output_path=None, show=False):
     results_df = pd.DataFrame(results)
 
