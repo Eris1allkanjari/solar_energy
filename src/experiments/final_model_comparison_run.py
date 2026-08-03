@@ -35,7 +35,11 @@ from src.parameter_tuning.selection import (
     select_robust_candidate
 )
 from src.parameter_tuning.tuner import final_test as final_neural_test
-from src.training.evaluation import evaluate
+from src.training.evaluation import (
+    daylight_mape,
+    daylight_mask_for,
+    evaluate
+)
 
 
 RESULTS_DIR = FINAL_COMPARISON_RESULTS_DIR
@@ -147,7 +151,8 @@ def load_existing_summaries(
         "training_data",
         "tuning_protocol",
         "metric_aggregation",
-        "high_quality_mae"
+        "high_quality_mae",
+        "day_mape"
     }
 
     if resume_columns.difference(comparison_df.columns):
@@ -412,8 +417,30 @@ def result_summary(
         y_true=y_test[high_quality_mask],
         y_pred=primary_prediction[high_quality_mask]
     )
-
     seed_predictions = final_result.get("seed_predictions")
+
+    # MAPE selects hours by a production threshold, which is only a proxy for
+    # daylight. Recompute it on an explicit solar-elevation mask to check the
+    # proxy. Aggregate across seeds exactly as the headline MAPE does, so the
+    # two are directly comparable.
+    daylight_mask = daylight_mask_for(test_index)
+    daylight_scored = daylight_mask & (y_test > MAPE_PRODUCTION_THRESHOLD)
+
+    if seed_predictions is not None:
+        day_mape = float(
+            np.mean(
+                [
+                    daylight_mape(
+                        test_index,
+                        y_test,
+                        np.asarray(seed_prediction)
+                    )
+                    for seed_prediction in seed_predictions
+                ]
+            )
+        )
+    else:
+        day_mape = daylight_mape(test_index, y_test, primary_prediction)
 
     if seed_predictions is not None:
         high_quality_metric_values = np.asarray(
@@ -534,6 +561,9 @@ def result_summary(
         "high_quality_rmse_std": high_quality_metric_std[1],
         "high_quality_mape": high_quality_metrics[2],
         "high_quality_mape_std": high_quality_metric_std[2],
+        "daylight_hours": int(daylight_mask.sum()),
+        "day_mape_samples": int(daylight_scored.sum()),
+        "day_mape": day_mape,
         "test_blocks": test_block_metrics["validation_blocks"],
         "test_block_mae_mean": test_block_metrics["val_block_mae_mean"],
         "test_block_mae_std": test_block_metrics["val_block_mae_std"],
@@ -693,6 +723,20 @@ def save_comparison(summaries):
         ]
     ].sort_values("test_block_mae_mean").to_csv(
         RESULTS_DIR / "final_model_block_metrics.csv",
+        index=False
+    )
+    # Cross-check of the MAPE hour selection: the production threshold against
+    # an explicit solar-elevation mask.
+    comparison_df[
+        [
+            "model",
+            "mape",
+            "percentage_metric_samples",
+            "day_mape",
+            "day_mape_samples"
+        ]
+    ].sort_values("day_mape").to_csv(
+        RESULTS_DIR / "final_model_daylight_mape.csv",
         index=False
     )
 

@@ -13,6 +13,12 @@ RNN_SEEDS = (42, 123, 2026)
 MAPE_PRODUCTION_THRESHOLD = 5.0
 PV_QUALITY_THRESHOLD = 0.50
 
+# Utrecht, the site of the PV systems. Used only to split scored hours into
+# day and night via solar elevation, never as a model input.
+SITE_LATITUDE = 52.0907
+SITE_LONGITUDE = 5.1214
+DAYLIGHT_ELEVATION_DEGREES = 0.0
+
 SELECTION_PROTOCOL = "monthly_blocks_converged_bic_lag1_causal_v6"
 NEURAL_SELECTION_PROTOCOL = "monthly_blocks_seeded_split_scaled_features_v6"
 FINAL_COMPARISON_PROTOCOL = "rolling_origin_seed_mean_quality_v8"
