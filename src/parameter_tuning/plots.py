@@ -394,6 +394,178 @@ def plot_periodicity_ablation(
     plt.close(figure)
 
 
+def plot_seed_sweep(
+    seed_maes,
+    ensemble_curves=None,
+    output_path=None,
+    show=False
+):
+    """Spread of test MAE across seeds, and the benefit of pooling them.
+
+    The left panel shows every individual seed against the model mean, which is
+    what decides whether a gap between two models is larger than the noise from
+    initialisation alone. The right panel shows how far the seed ensemble
+    improves as more seeds are pooled, which is what justifies the number of
+    seeds used in the final protocol.
+    """
+    panels = 2 if ensemble_curves else 1
+    figure, axes = plt.subplots(
+        1,
+        panels,
+        figsize=(6.5 * panels, 5.5),
+        squeeze=False
+    )
+    spread_axes = axes[0][0]
+
+    for position, (model_name, values) in enumerate(seed_maes.items()):
+        values = np.asarray(values, dtype=float)
+        color, marker = MODEL_STYLES.get(model_name, (None, "o"))
+        jitter = np.random.default_rng(0).normal(0, 0.04, size=len(values))
+
+        spread_axes.scatter(
+            np.full(len(values), position) + jitter,
+            values,
+            color=color,
+            marker=marker,
+            s=55,
+            alpha=0.85,
+            label=f"{model_name} seeds"
+        )
+        spread_axes.hlines(
+            values.mean(),
+            position - 0.25,
+            position + 0.25,
+            color="black",
+            linewidth=2
+        )
+
+        if len(values) > 1:
+            spread_axes.errorbar(
+                position,
+                values.mean(),
+                yerr=values.std(ddof=1),
+                color="black",
+                capsize=6,
+                linewidth=1.4
+            )
+
+    spread_axes.set_xticks(range(len(seed_maes)))
+    spread_axes.set_xticklabels(list(seed_maes))
+    spread_axes.set_ylabel("test MAE (kWh)")
+    spread_axes.set_title("per-seed test MAE (bar = mean, whisker = 1 sd)")
+    spread_axes.grid(True, alpha=0.3, axis="y")
+
+    if ensemble_curves:
+        curve_axes = axes[0][1]
+
+        for model_name, curve in ensemble_curves.items():
+            color, marker = MODEL_STYLES.get(model_name, (None, "o"))
+            curve_axes.plot(
+                curve["seeds_pooled"],
+                curve["ensemble_mae_mean"],
+                marker=marker,
+                color=color,
+                label=model_name
+            )
+            curve_axes.fill_between(
+                curve["seeds_pooled"],
+                curve["ensemble_mae_mean"] - curve["ensemble_mae_std"],
+                curve["ensemble_mae_mean"] + curve["ensemble_mae_std"],
+                color=color,
+                alpha=0.15
+            )
+
+        curve_axes.set_xlabel("seeds pooled in the ensemble")
+        curve_axes.set_ylabel("ensemble test MAE (kWh)")
+        curve_axes.set_title("ensemble MAE against number of seeds")
+        curve_axes.grid(True, alpha=0.3)
+        curve_axes.legend()
+
+    spread_axes.legend()
+    figure.tight_layout()
+
+    if output_path is not None:
+        ensure_output_dir(output_path)
+        figure.savefig(output_path, dpi=300)
+
+    if show:
+        plt.show()
+
+    plt.close(figure)
+
+
+def plot_loss_comparison(
+    summary_df,
+    bins_df,
+    output_path=None,
+    title="training loss comparison",
+    show=False
+):
+    """Accuracy against peak bias for each candidate training loss.
+
+    The left panel is the selection metric, the middle panel is the signed bias
+    on the highest-production hours, and the right panel traces bias across
+    production levels. A loss that lowers peak under-prediction without raising
+    validation MAE is the one worth adopting.
+    """
+    figure, (mae_axes, bias_axes, curve_axes) = plt.subplots(
+        1,
+        3,
+        figsize=(17, 5.5)
+    )
+
+    variants = summary_df["loss_variant"].tolist()
+    positions = np.arange(len(variants))
+
+    mae_axes.bar(
+        positions,
+        summary_df["val_block_mae_mean"],
+        color="#1f77b4"
+    )
+    mae_axes.set_xticks(positions)
+    mae_axes.set_xticklabels(variants, rotation=20)
+    mae_axes.set_ylabel("mean monthly validation MAE (kWh)")
+    mae_axes.set_title("accuracy (lower is better)")
+    mae_axes.grid(True, alpha=0.3, axis="y")
+
+    colors = ["#d62728" if v < 0 else "#2ca02c" for v in summary_df["peak_bias"]]
+    bias_axes.bar(positions, summary_df["peak_bias"], color=colors)
+    bias_axes.axhline(0, color="black", linewidth=0.8)
+    bias_axes.set_xticks(positions)
+    bias_axes.set_xticklabels(variants, rotation=20)
+    bias_axes.set_ylabel("bias on peak hours (kWh)")
+    bias_axes.set_title("negative = under-predicting peaks")
+    bias_axes.grid(True, alpha=0.3, axis="y")
+
+    for variant, frame in bins_df.groupby("loss_variant", sort=False):
+        curve_axes.plot(
+            frame["bin"],
+            frame["bias"],
+            marker="o",
+            label=variant
+        )
+
+    curve_axes.axhline(0, color="black", linewidth=0.8)
+    curve_axes.set_xlabel("production level (low to peak)")
+    curve_axes.set_ylabel("bias (kWh)")
+    curve_axes.set_title("bias across production levels")
+    curve_axes.set_xticks(sorted(bins_df["bin"].unique()))
+    curve_axes.grid(True, alpha=0.3)
+    curve_axes.legend()
+
+    figure.suptitle(title)
+    figure.tight_layout()
+
+    if output_path is not None:
+        ensure_output_dir(output_path)
+        figure.savefig(output_path, dpi=300)
+
+    if show:
+        plt.show()
+
+    plt.close(figure)
+
+
 def plot_feature_ablation(results, output_path=None, show=False):
     results_df = pd.DataFrame(results)
 

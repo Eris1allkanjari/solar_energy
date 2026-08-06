@@ -221,7 +221,6 @@ def evaluate_on_validation(
         "epochs": config.EPOCHS,
         "patience": config.PATIENCE,
         "loss": config.LOSS,
-        "huber_delta": config.HUBER_DELTA,
         "weight_decay": config.WEIGHT_DECAY,
         "gradient_clip": config.GRADIENT_CLIP,
         "shuffle_training": True,
@@ -357,8 +356,7 @@ def params_from_best_setting(best_setting):
         "batch_size": int(best_setting["batch_size"]),
         "epochs": int(best_setting["epochs"]),
         "patience": int(best_setting["patience"]),
-        "loss": best_setting.get("loss", "huber"),
-        "huber_delta": float(best_setting.get("huber_delta", 0.1)),
+        "loss": best_setting.get("loss", "mae"),
         "weight_decay": float(best_setting.get("weight_decay", 1e-5)),
         "gradient_clip": float(best_setting.get("gradient_clip", 1.0))
     }
@@ -517,7 +515,6 @@ def final_test(
         "epochs": config.EPOCHS,
         "patience": config.PATIENCE,
         "loss": config.LOSS,
-        "huber_delta": config.HUBER_DELTA,
         "weight_decay": config.WEIGHT_DECAY,
         "gradient_clip": config.GRADIENT_CLIP,
         "shuffle_training": True,

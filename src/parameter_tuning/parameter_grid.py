@@ -9,8 +9,7 @@ HYPERPARAMETER_GRIDS = {
         "batch_size": [64],
         "epochs": [30],
         "patience": [5],
-        "loss": ["huber"],
-        "huber_delta": [0.1],
+        "loss": ["mae"],
         "weight_decay": [1e-5],
         "gradient_clip": [1.0]
     },
@@ -23,8 +22,7 @@ HYPERPARAMETER_GRIDS = {
         "batch_size": [64],
         "epochs": [30],
         "patience": [5],
-        "loss": ["huber"],
-        "huber_delta": [0.1],
+        "loss": ["mae"],
         "weight_decay": [1e-5],
         "gradient_clip": [1.0]
     },
@@ -37,8 +35,7 @@ HYPERPARAMETER_GRIDS = {
         "batch_size": [64],
         "epochs": [30],
         "patience": [5],
-        "loss": ["huber"],
-        "huber_delta": [0.1],
+        "loss": ["mae"],
         "weight_decay": [1e-5],
         "gradient_clip": [1.0]
     }

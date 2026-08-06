@@ -20,5 +20,5 @@ SITE_LONGITUDE = 5.1214
 DAYLIGHT_ELEVATION_DEGREES = 0.0
 
 SELECTION_PROTOCOL = "monthly_blocks_converged_bic_lag1_causal_v6"
-NEURAL_SELECTION_PROTOCOL = "monthly_blocks_seeded_split_scaled_features_v6"
-FINAL_COMPARISON_PROTOCOL = "rolling_origin_seed_mean_quality_v8"
+NEURAL_SELECTION_PROTOCOL = "monthly_blocks_seeded_mae_loss_v7"
+FINAL_COMPARISON_PROTOCOL = "rolling_origin_seed_mean_quality_v9"
