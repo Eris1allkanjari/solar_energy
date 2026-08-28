@@ -115,56 +115,84 @@ def plot_real_vs_predicted(
 
 def plot_mae_by_l_all_models(
     results_df,
+    families,
     output_path=None,
     metric="val_block_mae_mean",
+    selected_l=None,
     show=False
 ):
-    """Validation MAE against input window length L for every model.
+    """Validation MAE against window length, one panel per model family.
 
-    The neural windows (24-168 h) and the autoregressive windows (168-1440 h)
-    differ by an order of magnitude, so L is drawn on a log axis to keep both
-    families readable on one set of axes. The selected L per model is marked.
+    L means different things in the two families: for the recurrent models it is
+    the input sequence length fed to the network, while for the autoregressive
+    models it is the rolling window the parameters are refitted on. They get
+    separate panels so neither axis is overloaded, but the y-axis is shared so
+    the accuracy levels remain directly comparable. The marked L is the one the
+    selection rule chose.
     """
-    figure, axes = plt.subplots(figsize=(10, 6))
-
-    for model_name, model_df in results_df.groupby("model", sort=False):
-        model_df = model_df.sort_values("seq_len")
-        color, marker = MODEL_STYLES.get(model_name, (None, "o"))
-
-        axes.plot(
-            model_df["seq_len"],
-            model_df[metric],
-            marker=marker,
-            color=color,
-            label=model_name,
-            linewidth=1.8,
-            markersize=6
-        )
-
-        best_row = model_df.loc[model_df[metric].idxmin()]
-        axes.scatter(
-            best_row["seq_len"],
-            best_row[metric],
-            marker="*",
-            s=260,
-            color=color,
-            edgecolor="black",
-            linewidth=0.6,
-            zorder=5
-        )
-
-    axes.set_xscale("log", base=2)
-    axes.set_xticks(sorted(results_df["seq_len"].unique()))
-    axes.get_xaxis().set_major_formatter(
-        plt.FuncFormatter(lambda value, _: f"{int(value)}")
+    figure, axes_list = plt.subplots(
+        1,
+        len(families),
+        figsize=(7 * len(families), 5.5),
+        sharey=True
     )
-    axes.set_xlabel("input window length L (hours, log scale)")
-    axes.set_ylabel("mean monthly validation MAE (kWh)")
-    axes.set_title(
-        "validation MAE by input window length (star = selected L)"
+
+    if len(families) == 1:
+        axes_list = [axes_list]
+
+    for axes, family in zip(axes_list, families):
+        family_df = results_df[results_df["model"].isin(family["models"])]
+
+        for model_name, model_df in family_df.groupby("model", sort=False):
+            model_df = model_df.sort_values("seq_len")
+            color, marker = MODEL_STYLES.get(model_name, (None, "o"))
+
+            axes.plot(
+                model_df["seq_len"],
+                model_df[metric],
+                marker=marker,
+                color=color,
+                label=model_name,
+                linewidth=1.8,
+                markersize=6
+            )
+
+            # select_robust_candidate accepts any L within a tolerance of the
+            # best MAE and then prefers lower RMSE, so the chosen L is not
+            # always the raw minimum.
+            if selected_l is not None and model_name in selected_l:
+                best_row = model_df[
+                    model_df["seq_len"] == selected_l[model_name]
+                ].iloc[0]
+            else:
+                best_row = model_df.loc[model_df[metric].idxmin()]
+
+            axes.scatter(
+                best_row["seq_len"],
+                best_row[metric],
+                marker="*",
+                s=260,
+                color=color,
+                edgecolor="black",
+                linewidth=0.6,
+                zorder=5
+            )
+
+        axes.set_xscale("log", base=2)
+        axes.set_xticks(sorted(family_df["seq_len"].unique()))
+        axes.get_xaxis().set_major_formatter(
+            plt.FuncFormatter(lambda value, _: f"{int(value)}")
+        )
+        axes.set_xlabel(family["xlabel"])
+        axes.set_title(family["title"])
+        axes.grid(True, alpha=0.3)
+        axes.legend(title="model")
+
+    axes_list[0].set_ylabel("mean monthly validation MAE (kWh)")
+    figure.suptitle(
+        "validation MAE by window length "
+        "(star = L chosen by the selection rule)"
     )
-    axes.grid(True, alpha=0.3)
-    axes.legend(title="model", ncol=2)
     figure.tight_layout()
 
     if output_path is not None:

@@ -36,6 +36,7 @@ from src.parameter_tuning.selection import (
 )
 from src.parameter_tuning.tuner import final_test as final_neural_test
 from src.training.evaluation import (
+    daylight_mae,
     daylight_mape,
     daylight_mask_for,
     evaluate
@@ -151,7 +152,8 @@ def load_existing_summaries(
         "tuning_protocol",
         "metric_aggregation",
         "high_quality_mae",
-        "day_mape"
+        "day_mape",
+        "day_mae"
     }
 
     if resume_columns.difference(comparison_df.columns):
@@ -441,6 +443,25 @@ def result_summary(
     else:
         day_mape = daylight_mape(test_index, y_test, primary_prediction)
 
+    # Pooled MAE is diluted by the roughly half of all hours that are dark and
+    # trivially zero, so report the daylight and night periods separately.
+    if seed_predictions is not None:
+        day_night = np.asarray(
+            [
+                daylight_mae(test_index, y_test, np.asarray(seed_prediction))
+                for seed_prediction in seed_predictions
+            ]
+        )
+        day_mae, night_mae = day_night.mean(axis=0)
+        day_mae_std = float(day_night[:, 0].std(ddof=0))
+    else:
+        day_mae, night_mae = daylight_mae(
+            test_index,
+            y_test,
+            primary_prediction
+        )
+        day_mae_std = np.nan
+
     if seed_predictions is not None:
         high_quality_metric_values = np.asarray(
             [
@@ -560,6 +581,10 @@ def result_summary(
         "high_quality_mape": high_quality_metrics[2],
         "high_quality_mape_std": high_quality_metric_std[2],
         "daylight_hours": int(daylight_mask.sum()),
+        "night_hours": int((~daylight_mask).sum()),
+        "day_mae": day_mae,
+        "day_mae_std": day_mae_std,
+        "night_mae": night_mae,
         "day_mape_samples": int(daylight_scored.sum()),
         "day_mape": day_mape,
         "test_blocks": test_block_metrics["validation_blocks"],
@@ -692,7 +717,7 @@ def save_comparison(summaries):
         index=False
     )
     comparison_df[
-        ["model", "mae", "rmse", "mape"]
+        ["model", "mae", "day_mae", "night_mae", "rmse", "mape"]
     ].to_csv(
         RESULTS_DIR / "final_model_metrics.csv",
         index=False

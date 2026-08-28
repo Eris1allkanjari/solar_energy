@@ -15,9 +15,14 @@ from src.parameter_tuning.plots import (
     plot_forecast_zoom_all_models,
     plot_mae_by_l_all_models
 )
+from src.parameter_tuning.selection import (
+    SELECTION_MAE_KEY,
+    SELECTION_RMSE_KEY,
+    select_robust_candidate
+)
 
 
-SELECTION_METRIC = "val_block_mae_mean"
+SELECTION_METRIC = SELECTION_MAE_KEY
 
 
 def parse_args():
@@ -56,7 +61,9 @@ def load_best_per_l():
 
         frame = pd.read_csv(path)
         frame["model"] = model_name
-        frames.append(frame[["model", "seq_len", SELECTION_METRIC]])
+        frames.append(
+            frame[["model", "seq_len", SELECTION_METRIC, SELECTION_RMSE_KEY]]
+        )
 
     for model_name in AR_MODELS:
         path = AR_TUNING_RESULTS_DIR / f"{model_name}_ar_best_per_l.csv"
@@ -67,7 +74,9 @@ def load_best_per_l():
 
         frame = pd.read_csv(path)
         frame["model"] = model_name
-        frames.append(frame[["model", "seq_len", SELECTION_METRIC]])
+        frames.append(
+            frame[["model", "seq_len", SELECTION_METRIC, SELECTION_RMSE_KEY]]
+        )
 
     if not frames:
         raise FileNotFoundError(
@@ -141,19 +150,76 @@ def main():
     SUMMARY_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     best_per_l = load_best_per_l()
-    window_path = SUMMARY_RESULTS_DIR / "validation_mae_by_window_length.png"
-    plot_mae_by_l_all_models(
-        results_df=best_per_l,
-        output_path=str(window_path),
-        metric=SELECTION_METRIC
-    )
-    best_l = (
-        best_per_l.loc[best_per_l.groupby("model")[SELECTION_METRIC].idxmin()]
-        .sort_values(SELECTION_METRIC)
-    )
+
+    # Use the same rule the final comparison uses, so the marked L is the one
+    # actually carried into the results rather than the raw minimum.
+    selected_l = {
+        model_name: int(
+            select_robust_candidate(model_df.to_dict(orient="records"))[
+                "seq_len"
+            ]
+        )
+        for model_name, model_df in best_per_l.groupby("model", sort=False)
+    }
+
+    neural_family = {
+        "title": "recurrent models",
+        "xlabel": "input sequence length L (hours, log scale)",
+        "models": NEURAL_MODELS
+    }
+    ar_family = {
+        "title": "autoregressive models",
+        "xlabel": "rolling fit window (hours, log scale)",
+        "models": AR_MODELS
+    }
+    combined_family = {
+        "title": "all models",
+        "xlabel": "window length (hours, log scale)",
+        "models": NEURAL_MODELS + AR_MODELS
+    }
+
+    # The combined figure keeps both families on one axis for a direct accuracy
+    # comparison; the per-family figures avoid overloading the x-axis, which
+    # means input sequence length for the recurrent models and rolling fit
+    # window for the autoregressive ones.
+    # The side-by-side variant shares the y-axis, so each family keeps its own
+    # correctly labelled x-axis while the accuracy levels stay comparable and
+    # the recurrent panel is not auto-zoomed into its own noise.
+    window_figures = [
+        ("validation_mae_by_window_length.png", [combined_family]),
+        (
+            "validation_mae_by_window_length_by_family.png",
+            [neural_family, ar_family]
+        ),
+        ("validation_mae_by_window_length_recurrent.png", [neural_family]),
+        ("validation_mae_by_window_length_autoregressive.png", [ar_family])
+    ]
+
+    for file_name, families in window_figures:
+        window_path = SUMMARY_RESULTS_DIR / file_name
+        plot_mae_by_l_all_models(
+            results_df=best_per_l,
+            families=families,
+            output_path=str(window_path),
+            metric=SELECTION_METRIC,
+            selected_l=selected_l
+        )
+        print(f"saved {window_path}")
     print("\nselected window length per model:")
-    print(best_l.to_string(index=False))
-    print(f"\nsaved {window_path}")
+    for model_name, length in selected_l.items():
+        row = best_per_l[
+            (best_per_l["model"] == model_name)
+            & (best_per_l["seq_len"] == length)
+        ].iloc[0]
+        minimum = best_per_l[best_per_l["model"] == model_name][
+            SELECTION_METRIC
+        ].min()
+        note = "" if np.isclose(row[SELECTION_METRIC], minimum) else \
+            f"  (raw minimum is {minimum:.4f}; within tolerance, lower RMSE won)"
+        print(
+            f"  {model_name:10s} L={length:<5d} "
+            f"{SELECTION_METRIC}={row[SELECTION_METRIC]:.4f}{note}"
+        )
 
     predictions = load_test_predictions()
     reference = next(iter(predictions.values()))

@@ -87,6 +87,14 @@ def parse_args():
         type=int,
         default=2026
     )
+    parser.add_argument(
+        "--plot-only",
+        action="store_true",
+        help=(
+            "Redraw the figures from saved CSVs without refitting. Use after a "
+            "change that only affects presentation."
+        )
+    )
     return parser.parse_args()
 
 
@@ -401,6 +409,26 @@ def compare_with_reference(
     return row
 
 
+def group_label(row):
+    """Bar label naming the columns a group stands for.
+
+    A group name is not always a column name. hour_of_day is one concept the
+    model only ever sees as a sine and cosine pair, and the bar measures both
+    being removed together, so the label spells the pair out rather than
+    implying a single raw hour column exists.
+    """
+    columns = [
+        column
+        for column in str(row["dropped_features"]).split(",")
+        if column and column != "nan"
+    ]
+
+    if len(columns) > 1:
+        return f"{row['dropped_group']}\n({', '.join(columns)})"
+
+    return row["dropped_group"]
+
+
 def plot_results(model_name, rows):
     plot_rows = [
         row for row in rows
@@ -411,7 +439,7 @@ def plot_results(model_name, rows):
     if not plot_rows:
         return
 
-    labels = [row["dropped_group"] for row in plot_rows]
+    labels = [group_label(row) for row in plot_rows]
     values = np.asarray([row["delta_mae"] for row in plot_rows])
     lower = np.asarray([row["delta_mae_ci_lower"] for row in plot_rows])
     upper = np.asarray([row["delta_mae_ci_upper"] for row in plot_rows])
@@ -424,12 +452,18 @@ def plot_results(model_name, rows):
         for row in plot_rows
     ]
 
-    figure, axis = plt.subplots(figsize=(10, 5))
+    figure, axis = plt.subplots(figsize=(11, 5.5))
     axis.bar(labels, values, color=colors, yerr=errors, capsize=4)
     axis.axhline(0, color="black", linewidth=1)
     axis.set_ylabel("MAE increase when feature group is removed")
-    axis.set_title(f"Feature contribution significance: {model_name.upper()}")
-    axis.tick_params(axis="x", rotation=30)
+    axis.set_title(
+        f"Feature contribution significance: {model_name.upper()}\n"
+        "each bar removes a whole feature group; "
+        "columns in brackets are dropped together"
+    )
+    # Labels run to two lines now, which rotation would make hard to pair with
+    # its bar, so they stay horizontal at a smaller size instead.
+    axis.tick_params(axis="x", rotation=0, labelsize=8.5)
     figure.tight_layout()
     figure.savefig(
         RESULTS_DIR / f"{model_name}_feature_significance.png",
@@ -566,8 +600,33 @@ def run_model(model_name, feature_df, quality_df, args):
     print(f"saved {output_path}")
 
 
+def regenerate_plots(model_names):
+    """Redraw figures from the saved CSVs. Refits nothing.
+
+    Every value the figure needs is already in the CSV, so a presentation
+    change does not have to pay for the full leave-one-group-out run again.
+    """
+    for model_name in model_names:
+        csv_path = RESULTS_DIR / f"{model_name}_feature_significance.csv"
+
+        if not csv_path.exists():
+            print(f"skipping {model_name}: missing {csv_path}")
+            continue
+
+        plot_results(
+            model_name,
+            pd.read_csv(csv_path).to_dict(orient="records")
+        )
+        print(f"saved {RESULTS_DIR / f'{model_name}_feature_significance.png'}")
+
+
 def main():
     args = parse_args()
+
+    if args.plot_only:
+        regenerate_plots(args.models)
+        return
+
     raw_df = load_dataset(DATA_FILE_PATH)
     feature_df = add_time_features(raw_df.copy())
     quality_df = load_pv_quality()

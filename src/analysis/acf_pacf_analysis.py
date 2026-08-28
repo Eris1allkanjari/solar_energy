@@ -24,7 +24,7 @@ def analyze_acf_pacf(
     fig, axes = plt.subplots(
         1,
         2,
-        figsize=(14, 5)
+        figsize=(14, 6)
     )
 
     # acf plot
@@ -36,7 +36,13 @@ def analyze_acf_pacf(
     )
 
     axes[0].set_title(
-        "training-set autocorrelation function"
+        "training-set autocorrelation function (ACF)"
+    )
+    axes[0].set_xlabel(
+        "lag k (hours before the current hour)"
+    )
+    axes[0].set_ylabel(
+        "correlation of pv_total_kWh with itself k hours earlier"
     )
 
     # pacf plot
@@ -48,7 +54,25 @@ def analyze_acf_pacf(
     )
 
     axes[1].set_title(
-        "training-set partial autocorrelation function"
+        "training-set partial autocorrelation function (PACF)"
+    )
+    axes[1].set_xlabel(
+        "lag k (hours before the current hour)"
+    )
+    axes[1].set_ylabel(
+        "direct correlation at lag k, shorter lags removed"
+    )
+
+    for axis in axes:
+        axis.set_ylim(-1.05, 1.05)
+        axis.grid(True, alpha=0.3)
+
+    # The shaded band is the 95% interval for zero correlation: spikes inside
+    # it are indistinguishable from noise, spikes outside carry real signal.
+    fig.suptitle(
+        f"{series.name} over {lags} lags. "
+        "Shaded band = 95% confidence interval for zero correlation; "
+        "spikes inside it are not significant."
     )
 
     plt.tight_layout()

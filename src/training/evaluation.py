@@ -54,6 +54,37 @@ def daylight_mask_for(
     )
 
 
+def daylight_mae(
+    index,
+    y_true,
+    y_pred,
+    **daylight_kwargs
+):
+    """MAE over daylight hours only, with the night MAE alongside it.
+
+    Roughly half of all hours are dark, and every model scores near zero on them
+    because predicting no production is trivial. Pooling those hours therefore
+    halves the reported MAE and understates the error on the hours that actually
+    carry forecasting difficulty. Returns (daylight_mae, night_mae).
+    """
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    mask = daylight_mask_for(index=index, **daylight_kwargs)
+
+    day = (
+        float(np.abs(y_true[mask] - y_pred[mask]).mean())
+        if mask.any()
+        else np.nan
+    )
+    night = (
+        float(np.abs(y_true[~mask] - y_pred[~mask]).mean())
+        if (~mask).any()
+        else np.nan
+    )
+
+    return day, night
+
+
 def daylight_mape(
     index,
     y_true,
