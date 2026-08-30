@@ -36,11 +36,15 @@ from src.parameter_tuning.selection import (
 )
 from src.parameter_tuning.tuner import final_test as final_neural_test
 from src.training.evaluation import (
+    as_capacity_percentage,
     daylight_mae,
     daylight_mape,
     daylight_mask_for,
+    daylight_mdape,
+    daylight_wmape,
     evaluate
 )
+from src.utils.capacity import training_peak_capacity
 
 
 RESULTS_DIR = FINAL_COMPARISON_RESULTS_DIR
@@ -153,7 +157,11 @@ def load_existing_summaries(
         "metric_aggregation",
         "high_quality_mae",
         "day_mape",
-        "day_mae"
+        "day_mae",
+        "day_wmape",
+        "day_mdape",
+        "nmae",
+        "day_nmae"
     }
 
     if resume_columns.difference(comparison_df.columns):
@@ -388,7 +396,8 @@ def result_summary(
     best_setting,
     model_family,
     test_start,
-    test_end
+    test_end,
+    capacity_kwh
 ):
     y_test = np.asarray(final_result["y_test"])
     percentage_metric_samples = int(
@@ -427,11 +436,20 @@ def result_summary(
     daylight_mask = daylight_mask_for(test_index)
     daylight_scored = daylight_mask & (y_test > MAPE_PRODUCTION_THRESHOLD)
 
-    if seed_predictions is not None:
-        day_mape = float(
+    def seed_mean_daylight_metric(metric_function):
+        """Aggregate a daylight metric the way every other metric here is.
+
+        Neural models yield one prediction per seed and each reported figure is
+        the mean over them, so a metric that aggregated differently would not be
+        comparable with the ones sitting beside it in the same row.
+        """
+        if seed_predictions is None:
+            return metric_function(test_index, y_test, primary_prediction)
+
+        return float(
             np.mean(
                 [
-                    daylight_mape(
+                    metric_function(
                         test_index,
                         y_test,
                         np.asarray(seed_prediction)
@@ -440,8 +458,16 @@ def result_summary(
                 ]
             )
         )
-    else:
-        day_mape = daylight_mape(test_index, y_test, primary_prediction)
+
+    day_mape = seed_mean_daylight_metric(daylight_mape)
+
+    # MAPE stays inflated once restricted to daylight, because the small
+    # denominators causing the inflation are daylight hours themselves: dawn,
+    # dusk and overcast middays. These two carry the percentage error without
+    # that distortion, wMAPE by dividing period totals and MdAPE by reporting
+    # the typical hour rather than the mean of a heavy tail.
+    day_wmape = seed_mean_daylight_metric(daylight_wmape)
+    day_mdape = seed_mean_daylight_metric(daylight_mdape)
 
     # Pooled MAE is diluted by the roughly half of all hours that are dark and
     # trivially zero, so report the daylight and night periods separately.
@@ -587,6 +613,18 @@ def result_summary(
         "night_mae": night_mae,
         "day_mape_samples": int(daylight_scored.sum()),
         "day_mape": day_mape,
+        "day_wmape": day_wmape,
+        "day_mdape": day_mdape,
+        # NMAE, the MAE normalised by capacity. A kWh error is meaningless
+        # without knowing the size of the installation, so the same errors are
+        # also reported as a percentage of the fixed training-peak reference.
+        "capacity_kwh": capacity_kwh,
+        "nmae": as_capacity_percentage(
+            final_result["mae"],
+            capacity_kwh
+        ),
+        "day_nmae": as_capacity_percentage(day_mae, capacity_kwh),
+        "night_nmae": as_capacity_percentage(night_mae, capacity_kwh),
         "test_blocks": test_block_metrics["validation_blocks"],
         "test_block_mae_mean": test_block_metrics["val_block_mae_mean"],
         "test_block_mae_std": test_block_metrics["val_block_mae_std"],
@@ -716,10 +754,40 @@ def save_comparison(summaries):
         RESULTS_DIR / "final_model_comparison.csv",
         index=False
     )
+    # Headline table. Each error appears twice: once over the whole test period
+    # and once over the daylight hours alone, since pooling the roughly half of
+    # hours that are dark and trivially zero halves the reported MAE.
     comparison_df[
-        ["model", "mae", "day_mae", "night_mae", "rmse", "mape"]
+        [
+            "model",
+            "mae",
+            "day_mae",
+            "night_mae",
+            "rmse",
+            "mape",
+            "day_mape",
+            "nmae",
+            "day_nmae"
+        ]
     ].to_csv(
         RESULTS_DIR / "final_model_metrics.csv",
+        index=False
+    )
+    # Scaled errors on their own, with the divisor alongside so the percentages
+    # can always be traced back to the kWh figures they came from.
+    comparison_df[
+        [
+            "model",
+            "capacity_kwh",
+            "mae",
+            "nmae",
+            "day_mae",
+            "day_nmae",
+            "night_mae",
+            "night_nmae"
+        ]
+    ].sort_values("nmae").to_csv(
+        RESULTS_DIR / "final_model_nmae_metrics.csv",
         index=False
     )
     comparison_df[
@@ -748,18 +816,24 @@ def save_comparison(summaries):
         RESULTS_DIR / "final_model_block_metrics.csv",
         index=False
     )
-    # Cross-check of the MAPE hour selection: the production threshold against
-    # an explicit solar-elevation mask.
+    # Percentage-metric detail. day_mape against mape cross-checks the MAPE hour
+    # selection, the production threshold against an explicit solar-elevation
+    # mask; wMAPE and MdAPE give the same period a percentage error that a
+    # handful of small denominators cannot inflate.
     comparison_df[
         [
             "model",
-            "mape",
             "percentage_metric_samples",
+            "mape",
             "day_mape",
-            "day_mape_samples"
+            "day_mape_samples",
+            "day_wmape",
+            "day_mdape",
+            "daylight_hours",
+            "night_hours"
         ]
-    ].sort_values("day_mape").to_csv(
-        RESULTS_DIR / "final_model_daylight_mape.csv",
+    ].sort_values("day_wmape").to_csv(
+        RESULTS_DIR / "final_model_daylight_metrics.csv",
         index=False
     )
 
@@ -826,6 +900,10 @@ def main():
     df_proc = prepare_dataframe(
         df
     )
+    # One fixed divisor for every model and every split, taken from training
+    # data only, so scaled errors stay comparable and leak no test information.
+    capacity_kwh = training_peak_capacity(df_proc)
+    print(f"scaling reference: training peak {capacity_kwh:.1f} kWh")
     quality_df = load_pv_quality()
 
     n_raw = len(df_proc)
@@ -886,7 +964,8 @@ def main():
             best_setting=best_setting,
             model_family="neural",
             test_start=test_start,
-            test_end=test_end
+            test_end=test_end,
+            capacity_kwh=capacity_kwh
         )
         summaries.append(summary)
 
@@ -928,7 +1007,8 @@ def main():
             best_setting=best_setting,
             model_family="autoregressive",
             test_start=test_start,
-            test_end=test_end
+            test_end=test_end,
+            capacity_kwh=capacity_kwh
         )
         summaries.append(summary)
 
@@ -957,7 +1037,8 @@ def main():
             best_setting=baseline_setting(),
             model_family="baseline",
             test_start=test_start,
-            test_end=test_end
+            test_end=test_end,
+            capacity_kwh=capacity_kwh
         )
         summaries.append(summary)
         save_model_result(

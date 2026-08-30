@@ -3,8 +3,10 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.data.loader import load_dataset
 from src.experiments.constants import (
     AR_TUNING_RESULTS_DIR,
+    DATA_FILE_PATH,
     FINAL_COMPARISON_RESULTS_DIR,
     NEURAL_TUNING_RESULTS_DIR,
     SUMMARY_RESULTS_DIR
@@ -20,9 +22,25 @@ from src.parameter_tuning.selection import (
     SELECTION_RMSE_KEY,
     select_robust_candidate
 )
+from src.experiments.parameter_tuning_run import prepare_dataframe
+from src.utils.capacity import training_peak_capacity
 
 
 SELECTION_METRIC = SELECTION_MAE_KEY
+
+
+def scale_variants(capacity_kwh):
+    """Filename suffix and divisor for each version of a figure.
+
+    Every figure is produced twice: once in kWh and once scaled to a percentage
+    of the training peak. The scaled version makes the error comparable with
+    published results from other sites, while the kWh version stays readable
+    against the raw data, so neither replaces the other.
+    """
+    return [
+        ("", None),
+        ("_scaled", capacity_kwh)
+    ]
 
 
 def parse_args():
@@ -149,6 +167,14 @@ def main():
     args = parse_args()
     SUMMARY_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Same divisor the final comparison uses, so a percentage read off a figure
+    # matches the nmae column in the results.
+    capacity_kwh = training_peak_capacity(
+        prepare_dataframe(load_dataset(DATA_FILE_PATH))
+    )
+    variants = scale_variants(capacity_kwh)
+    print(f"scaling reference: training peak {capacity_kwh:.1f} kWh")
+
     best_per_l = load_best_per_l()
 
     # Use the same rule the final comparison uses, so the marked L is the one
@@ -196,15 +222,20 @@ def main():
     ]
 
     for file_name, families in window_figures:
-        window_path = SUMMARY_RESULTS_DIR / file_name
-        plot_mae_by_l_all_models(
-            results_df=best_per_l,
-            families=families,
-            output_path=str(window_path),
-            metric=SELECTION_METRIC,
-            selected_l=selected_l
-        )
-        print(f"saved {window_path}")
+        for suffix, capacity in variants:
+            window_path = SUMMARY_RESULTS_DIR / file_name.replace(
+                ".png",
+                f"{suffix}.png"
+            )
+            plot_mae_by_l_all_models(
+                results_df=best_per_l,
+                families=families,
+                output_path=str(window_path),
+                metric=SELECTION_METRIC,
+                selected_l=selected_l,
+                capacity_kwh=capacity
+            )
+            print(f"saved {window_path}")
     print("\nselected window length per model:")
     for model_name, length in selected_l.items():
         row = best_per_l[
@@ -231,28 +262,36 @@ def main():
     )
 
     for model_name, frame in predictions.items():
-        output_path = (
-            SUMMARY_RESULTS_DIR / f"{model_name}_test_forecast_zoom.png"
-        )
-        plot_forecast_zoom(
-            time=frame["time"],
-            y_true=frame["y_true"],
-            y_pred=frame["y_pred"],
-            output_path=str(output_path),
-            title=f"{model_name} on the test set",
-            start=start,
-            hours=args.hours
-        )
-        print(f"saved {output_path}")
+        for suffix, capacity in variants:
+            output_path = (
+                SUMMARY_RESULTS_DIR
+                / f"{model_name}_test_forecast_zoom{suffix}.png"
+            )
+            plot_forecast_zoom(
+                time=frame["time"],
+                y_true=frame["y_true"],
+                y_pred=frame["y_pred"],
+                output_path=str(output_path),
+                title=f"{model_name} on the test set",
+                start=start,
+                hours=args.hours,
+                capacity_kwh=capacity
+            )
+            print(f"saved {output_path}")
 
-    combined_path = SUMMARY_RESULTS_DIR / "test_forecast_zoom_all_models.png"
-    plot_forecast_zoom_all_models(
-        predictions_by_model=predictions,
-        output_path=str(combined_path),
-        start=start,
-        hours=args.hours
-    )
-    print(f"saved {combined_path}")
+    for suffix, capacity in variants:
+        combined_path = (
+            SUMMARY_RESULTS_DIR
+            / f"test_forecast_zoom_all_models{suffix}.png"
+        )
+        plot_forecast_zoom_all_models(
+            predictions_by_model=predictions,
+            output_path=str(combined_path),
+            start=start,
+            hours=args.hours,
+            capacity_kwh=capacity
+        )
+        print(f"saved {combined_path}")
 
 
 if __name__ == "__main__":

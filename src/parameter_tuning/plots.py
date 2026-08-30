@@ -15,11 +15,34 @@ MODEL_STYLES = {
 }
 
 
+KWH_LABEL = "pv production (kWh)"
+SCALED_LABEL = "pv production (% of training peak capacity)"
+
+
 def ensure_output_dir(output_path):
     directory = os.path.dirname(output_path)
 
     if directory:
         os.makedirs(directory, exist_ok=True)
+
+
+def scale_to_capacity(values, capacity_kwh):
+    """Express kWh values as a percentage of the reference peak.
+
+    Passing capacity_kwh=None leaves the values in kWh, so a single plotting
+    function serves both the absolute and the scaled figure rather than the two
+    being maintained as separate copies that can drift apart.
+    """
+    values = np.asarray(values, dtype=float)
+
+    if capacity_kwh is None:
+        return values
+
+    return 100 * values / capacity_kwh
+
+
+def production_label(capacity_kwh):
+    return KWH_LABEL if capacity_kwh is None else SCALED_LABEL
 
 
 def plot_mae_by_l(best_per_l, output_path=None):
@@ -119,6 +142,7 @@ def plot_mae_by_l_all_models(
     output_path=None,
     metric="val_block_mae_mean",
     selected_l=None,
+    capacity_kwh=None,
     show=False
 ):
     """Validation MAE against window length, one panel per model family.
@@ -149,7 +173,7 @@ def plot_mae_by_l_all_models(
 
             axes.plot(
                 model_df["seq_len"],
-                model_df[metric],
+                scale_to_capacity(model_df[metric], capacity_kwh),
                 marker=marker,
                 color=color,
                 label=model_name,
@@ -169,7 +193,7 @@ def plot_mae_by_l_all_models(
 
             axes.scatter(
                 best_row["seq_len"],
-                best_row[metric],
+                scale_to_capacity(best_row[metric], capacity_kwh),
                 marker="*",
                 s=260,
                 color=color,
@@ -188,10 +212,19 @@ def plot_mae_by_l_all_models(
         axes.grid(True, alpha=0.3)
         axes.legend(title="model")
 
-    axes_list[0].set_ylabel("mean monthly validation MAE (kWh)")
+    axes_list[0].set_ylabel(
+        "mean monthly validation MAE (kWh)"
+        if capacity_kwh is None
+        else "mean monthly validation NMAE (% of training peak capacity)"
+    )
+    scale_note = (
+        ""
+        if capacity_kwh is None
+        else f", normalised by the {capacity_kwh:.1f} kWh training peak"
+    )
     figure.suptitle(
         "validation MAE by window length "
-        "(star = L chosen by the selection rule)"
+        f"(star = L chosen by the selection rule){scale_note}"
     )
     figure.tight_layout()
 
@@ -213,6 +246,7 @@ def plot_forecast_zoom(
     title="actual vs predicted",
     start=0,
     hours=72,
+    capacity_kwh=None,
     show=False
 ):
     """Zoomed actual-vs-predicted view on the test set.
@@ -221,10 +255,14 @@ def plot_forecast_zoom(
     window; the bottom panel is the horizontal zoom (a few days instead of the
     whole test set) with the vertical axis rescaled to that window, so the
     hour-by-hour tracking error is actually visible.
+
+    Passing capacity_kwh expresses both series as a percentage of the reference
+    peak instead of kWh.
     """
     time = pd.DatetimeIndex(time)
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
+    y_true = scale_to_capacity(y_true, capacity_kwh)
+    y_pred = scale_to_capacity(y_pred, capacity_kwh)
+    production_axis_label = production_label(capacity_kwh)
 
     end = min(start + hours, len(y_true))
     window = slice(start, end)
@@ -243,7 +281,7 @@ def plot_forecast_zoom(
         color="orange",
         alpha=0.35
     )
-    context_axes.set_ylabel("pv production (kWh)")
+    context_axes.set_ylabel(production_axis_label)
     context_axes.set_title(f"{title} - full test period, zoom window shaded")
     context_axes.grid(True, alpha=0.3)
 
@@ -276,14 +314,17 @@ def plot_forecast_zoom(
 
     # vertical zoom: rescale to the visible window instead of the full range
     visible = np.concatenate([y_true[window], y_pred[window]])
-    margin = max(0.05 * (visible.max() - visible.min()), 1.0)
+    # The floor keeps a flat window from collapsing onto a zero-height axis, and
+    # is scaled with the data so it stays the same physical size in both units.
+    margin_floor = float(scale_to_capacity(1.0, capacity_kwh))
+    margin = max(0.05 * (visible.max() - visible.min()), margin_floor)
     zoom_axes.set_ylim(
         min(visible.min() - margin, 0),
         visible.max() + margin
     )
 
     zoom_axes.set_xlabel("time")
-    zoom_axes.set_ylabel("pv production (kWh)")
+    zoom_axes.set_ylabel(production_axis_label)
     zoom_axes.set_title(
         f"zoom: {time[start]:%Y-%m-%d %H:%M} to {time[end - 1]:%Y-%m-%d %H:%M}"
         f" ({end - start} hours)"
@@ -308,6 +349,7 @@ def plot_forecast_zoom_all_models(
     output_path=None,
     start=0,
     hours=72,
+    capacity_kwh=None,
     show=False
 ):
     """One zoom window, every model overlaid against the same actual series."""
@@ -322,7 +364,10 @@ def plot_forecast_zoom_all_models(
         if first:
             axes.plot(
                 time[window],
-                frame["y_true"].to_numpy()[window],
+                scale_to_capacity(
+                    frame["y_true"].to_numpy()[window],
+                    capacity_kwh
+                ),
                 label="actual",
                 color="black",
                 linewidth=3,
@@ -333,7 +378,10 @@ def plot_forecast_zoom_all_models(
         color, marker = MODEL_STYLES.get(model_name, (None, "o"))
         axes.plot(
             time[window],
-            frame["y_pred"].to_numpy()[window],
+            scale_to_capacity(
+                frame["y_pred"].to_numpy()[window],
+                capacity_kwh
+            ),
             label=model_name,
             color=color,
             marker=marker,
@@ -343,7 +391,7 @@ def plot_forecast_zoom_all_models(
         )
 
     axes.set_xlabel("time")
-    axes.set_ylabel("pv production (kWh)")
+    axes.set_ylabel(production_label(capacity_kwh))
     axes.set_title("actual vs predicted on the test set, all models (zoom)")
     axes.grid(True, alpha=0.3)
     axes.legend(ncol=3)
