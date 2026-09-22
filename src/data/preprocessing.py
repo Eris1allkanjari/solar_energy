@@ -53,5 +53,7 @@ def clean_data(df):
         df["pv_total_kWh"] = df["pv_total_kWh"].clip(lower=0)
 
     # Impute causally. Forward-fill only carries past values across a gap, so
-    # imputation never reaches backward over a train/test boundary
-    return df.ffill().bfill()
+    # imputation never reaches backward over a train/test boundary. No backward
+    # fill: the dataset has no missing values in its first row, so there is no
+    # leading gap for forward-fill to fail on.
+    return df.ffill()

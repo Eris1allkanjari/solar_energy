@@ -93,30 +93,62 @@ def plot_real_vs_predicted(
     output_path=None,
     title="actual vs predicted pv production",
     max_points=None,
+    time=None,
+    capacity_kwh=None,
     show=True
 ):
-    # plot actual and predicted values over time
+    """Actual against predicted over the whole series.
+
+    Passing `time` puts real dates on the x-axis instead of a step counter,
+    which is what makes a full-test-period figure readable: a reader can see
+    which months the errors fall in. Passing `capacity_kwh` switches the y-axis
+    from kWh to a percentage of the reference peak.
+    """
+    y_true = scale_to_capacity(y_true, capacity_kwh)
+    y_pred = scale_to_capacity(y_pred, capacity_kwh)
+
+    if time is not None:
+        time = pd.DatetimeIndex(time)
 
     if max_points is not None:
         y_true = y_true[:max_points]
         y_pred = y_pred[:max_points]
 
-    figure = plt.figure(figsize=(12, 6))
+        if time is not None:
+            time = time[:max_points]
 
+    figure = plt.figure(figsize=(14, 6))
+    horizontal = range(len(y_true)) if time is None else time
+
+    # The actual series sits underneath at full weight and the prediction is
+    # drawn thin on top, so where they agree the orange disappears into the blue
+    # and only the disagreements stand out across several thousand hours.
     plt.plot(
+        horizontal,
         y_true,
-        label="actual"
+        label="actual",
+        color="#1f77b4",
+        linewidth=0.9
     )
 
     plt.plot(
+        horizontal,
         y_pred,
-        label="predicted"
+        label="predicted",
+        color="#ff7f0e",
+        linewidth=0.6,
+        alpha=0.85
     )
 
-    plt.xlabel("time step")
-    plt.ylabel("pv production")
+    plt.xlabel("time step" if time is None else "time")
+    plt.ylabel(production_label(capacity_kwh))
     plt.title(title)
+    plt.grid(True, alpha=0.3)
     plt.legend()
+
+    if time is not None:
+        figure.autofmt_xdate()
+
     plt.tight_layout()
 
     if output_path is not None:

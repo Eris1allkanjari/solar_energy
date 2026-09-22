@@ -28,7 +28,11 @@ import sys
 import numpy as np
 import pandas as pd
 
-from src.configs.evaluation import TEST_OFFSET, TEST_STEPS
+from src.configs.evaluation import (
+    MIDDAY_PERIOD_HOURS,
+    TEST_OFFSET,
+    TEST_STEPS
+)
 from src.data.loader import load_dataset
 from src.experiments.constants import (
     DATA_FILE_PATH,
@@ -43,7 +47,7 @@ from src.experiments.parameter_tuning_run import get_model, prepare_dataframe
 from src.parameter_tuning.plots import plot_seed_sweep
 from src.parameter_tuning.selection import calculate_monthly_validation_metrics
 from src.parameter_tuning.tuner import final_test as final_neural_test
-from src.training.evaluation import daylight_mape, evaluate
+from src.training.evaluation import clock_period_mape, evaluate
 
 
 RESULTS_DIR = SEED_SWEEP_RESULTS_DIR
@@ -128,7 +132,9 @@ def run_single_seed(model_name, seed):
         "mae": mae,
         "rmse": rmse,
         "mape": mape,
-        "day_mape": daylight_mape(index, y_true, y_pred),
+        "midday_mape": clock_period_mape(
+            index, y_true, y_pred, MIDDAY_PERIOD_HOURS
+        ),
         "high_quality_mae": quality_mae,
         "high_quality_rmse": quality_rmse,
         "block_mae_mean": blocks["val_block_mae_mean"],

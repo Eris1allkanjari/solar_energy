@@ -15,7 +15,8 @@ from src.experiments.final_model_comparison_run import AR_MODELS, NEURAL_MODELS
 from src.parameter_tuning.plots import (
     plot_forecast_zoom,
     plot_forecast_zoom_all_models,
-    plot_mae_by_l_all_models
+    plot_mae_by_l_all_models,
+    plot_real_vs_predicted
 )
 from src.parameter_tuning.selection import (
     SELECTION_MAE_KEY,
@@ -51,10 +52,10 @@ def parse_args():
         )
     )
     parser.add_argument(
-        "--hours",
-        type=int,
-        default=72,
-        help="Width of the zoom window in hours (default: 72, i.e. three days)."
+        "--zoom-days",
+        type=float,
+        default=2.0,
+        help="Width of the zoom window in days (default: 2)."
     )
     parser.add_argument(
         "--zoom-start",
@@ -148,11 +149,11 @@ def most_variable_window(frame, hours):
     return max(int(rolling.idxmax()) - hours + 1, 0)
 
 
-def resolve_zoom_start(frame, args):
-    if args.zoom_start is None:
-        return most_variable_window(frame, args.hours)
+def resolve_zoom_start(frame, hours, zoom_start):
+    if zoom_start is None:
+        return most_variable_window(frame, hours)
 
-    target = pd.Timestamp(args.zoom_start)
+    target = pd.Timestamp(zoom_start)
     position = frame["time"].searchsorted(target)
 
     if position >= len(frame):
@@ -254,12 +255,32 @@ def main():
 
     predictions = load_test_predictions()
     reference = next(iter(predictions.values()))
-    start = resolve_zoom_start(reference, args)
-    end = min(start + args.hours, len(reference))
+    zoom_hours = int(round(args.zoom_days * 24))
+    start = resolve_zoom_start(reference, zoom_hours, args.zoom_start)
+    end = min(start + zoom_hours, len(reference))
     print(
         f"\nzoom window: {reference['time'].iloc[start]} to "
         f"{reference['time'].iloc[end - 1]} ({end - start} hours)"
     )
+
+    # Full test period: the whole forecast against the whole truth, so seasonal
+    # structure and any sustained drift are visible at a glance.
+    for model_name, frame in predictions.items():
+        for suffix, capacity in variants:
+            full_path = (
+                SUMMARY_RESULTS_DIR
+                / f"{model_name}_test_forecast_full{suffix}.png"
+            )
+            plot_real_vs_predicted(
+                y_true=frame["y_true"].to_numpy(),
+                y_pred=frame["y_pred"].to_numpy(),
+                output_path=str(full_path),
+                title=f"{model_name}: actual vs predicted, full test period",
+                time=frame["time"],
+                capacity_kwh=capacity,
+                show=False
+            )
+            print(f"saved {full_path}")
 
     for model_name, frame in predictions.items():
         for suffix, capacity in variants:
@@ -274,7 +295,7 @@ def main():
                 output_path=str(output_path),
                 title=f"{model_name} on the test set",
                 start=start,
-                hours=args.hours,
+                hours=zoom_hours,
                 capacity_kwh=capacity
             )
             print(f"saved {output_path}")
@@ -288,7 +309,7 @@ def main():
             predictions_by_model=predictions,
             output_path=str(combined_path),
             start=start,
-            hours=args.hours,
+            hours=zoom_hours,
             capacity_kwh=capacity
         )
         print(f"saved {combined_path}")

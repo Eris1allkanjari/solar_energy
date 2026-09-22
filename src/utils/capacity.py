@@ -20,8 +20,19 @@ def training_peak_capacity(df, target_column="pv_total_kWh"):
     is a reference level for scaling rather than a true installed-capacity
     rating. It is a fixed, reproducible divisor, which is what the metric needs.
     """
-    train_end = int(len(df) * TRAIN_RATIO)
+    return training_production_range(df, target_column)[1]
 
-    return float(
-        df[target_column].iloc[:train_end].max()
-    )
+
+def training_production_range(df, target_column="pv_total_kWh"):
+    """(min, max) production observed in the training split, in kWh.
+
+    These are the two constants the min-max scaling needs. For this target the
+    minimum is exactly zero, because roughly half of all hours are dark, so
+    min-max scaling reduces to dividing by the maximum. Returning both anyway
+    keeps the general form in the code and lets the reported columns show why
+    the two scalings coincide rather than leaving it as an assumption.
+    """
+    train_end = int(len(df) * TRAIN_RATIO)
+    training_target = df[target_column].iloc[:train_end]
+
+    return float(training_target.min()), float(training_target.max())

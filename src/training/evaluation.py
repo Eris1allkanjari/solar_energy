@@ -1,13 +1,8 @@
 import numpy as np
+import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-from src.configs.evaluation import (
-    DAYLIGHT_ELEVATION_DEGREES,
-    MAPE_PRODUCTION_THRESHOLD,
-    SITE_LATITUDE,
-    SITE_LONGITUDE
-)
-from src.utils.solar import is_daylight
+from src.configs.evaluation import MAPE_PRODUCTION_THRESHOLD
 
 
 def evaluate(
@@ -40,82 +35,93 @@ def evaluate(
     return mae, rmse, mape
 
 
-def as_capacity_percentage(value, capacity_kwh):
-    """Express a kWh error as a percentage of peak capacity.
+def as_capacity_percentage(value, capacity_kwh, minimum_kwh=0.0):
+    """Express a kWh error as a percentage of the training production range.
 
-    Dividing by a fixed reference peak turns an absolute error into the scaled
-    (normalised) form used to compare forecasts across sites and datasets, where
-    a raw kWh figure means nothing without knowing the size of the installation.
+    This is the min-max scaled error. Scaling both series before subtracting,
+
+        (pred - min) / (max - min) - (real - min) / (max - min)
+
+    cancels the offset and leaves (pred - real) / (max - min), so the scaled MAE
+    is the plain MAE over the same denominator. With minimum_kwh = 0 it reduces
+    to max scaling, MAE / max, which is the NMAE-by-capacity convention.
+
+    For this target the training minimum is exactly zero, since roughly half of
+    all hours are dark, so the two forms coincide. The parameter is kept so the
+    general case is what the code actually implements.
     """
-    if capacity_kwh is None or capacity_kwh <= 0:
+    if capacity_kwh is None:
         return np.nan
 
-    return float(100 * np.asarray(value, dtype=float) / capacity_kwh)
+    scale = capacity_kwh - minimum_kwh
+
+    if scale <= 0:
+        return np.nan
+
+    return float(100 * np.asarray(value, dtype=float) / scale)
 
 
-def daylight_mask_for(
-    index,
-    latitude=SITE_LATITUDE,
-    longitude=SITE_LONGITUDE,
-    elevation_threshold=DAYLIGHT_ELEVATION_DEGREES
-):
-    return is_daylight(
-        index=index,
-        latitude=latitude,
-        longitude=longitude,
-        elevation_threshold=elevation_threshold
-    )
+def clock_hour_mask(index, hours):
+    """Boolean mask selecting timestamps whose hour is in `hours`.
+
+    Reported periods are defined by clock hour rather than solar elevation. The
+    boundaries are fixed, need no site geometry to interpret, and make any
+    reported figure reproducible from the timestamp alone.
+    """
+    return np.isin(pd.DatetimeIndex(index).hour, np.asarray(hours))
 
 
-def daylight_mae(
-    index,
-    y_true,
-    y_pred,
-    **daylight_kwargs
-):
-    """MAE over daylight hours only, with the night MAE alongside it.
+def split_by_mask(y_true, y_pred, mask, metric):
+    """Apply a metric inside a mask and inside its complement.
 
-    Roughly half of all hours are dark, and every model scores near zero on them
-    because predicting no production is trivial. Pooling those hours therefore
-    halves the reported MAE and understates the error on the hours that actually
-    carry forecasting difficulty. Returns (daylight_mae, night_mae).
+    Returns (inside, outside), with np.nan where a side has no hours, so that
+    every period-split metric reports the complement rather than quietly
+    dropping the hours it excluded.
     """
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
-    mask = daylight_mask_for(index=index, **daylight_kwargs)
+    mask = np.asarray(mask, dtype=bool)
 
-    day = (
-        float(np.abs(y_true[mask] - y_pred[mask]).mean())
-        if mask.any()
-        else np.nan
+    inside = metric(y_true[mask], y_pred[mask]) if mask.any() else np.nan
+    outside = metric(y_true[~mask], y_pred[~mask]) if (~mask).any() else np.nan
+
+    return inside, outside
+
+
+def clock_period_mae(index, y_true, y_pred, hours):
+    """MAE inside the given hours and over the complementary hours.
+
+    Returns (inside, outside). Pooling the two understates the error that
+    matters: the complement of the daylight hours is mostly dark, every model
+    scores near zero there because predicting no production is trivial, and
+    including it roughly halves the reported figure.
+    """
+    return split_by_mask(
+        y_true,
+        y_pred,
+        clock_hour_mask(index, hours),
+        lambda true, pred: float(np.abs(true - pred).mean())
     )
-    night = (
-        float(np.abs(y_true[~mask] - y_pred[~mask]).mean())
-        if (~mask).any()
-        else np.nan
-    )
-
-    return day, night
 
 
-def daylight_mape(
+def clock_period_mape(
     index,
     y_true,
     y_pred,
-    production_threshold=MAPE_PRODUCTION_THRESHOLD,
-    **daylight_kwargs
+    hours,
+    production_threshold=MAPE_PRODUCTION_THRESHOLD
 ):
-    """MAPE restricted to hours when the sun is above the horizon.
+    """MAPE restricted to the given hours.
 
-    The headline MAPE selects hours by a production threshold, which is only a
-    proxy for daylight. Recomputing it on an explicit solar-elevation mask tests
-    whether that proxy is sound: if the two agree, the threshold is doing its
-    job. MAPE has no night counterpart because production is zero after sunset
-    and the percentage denominator vanishes.
+    Delegates to evaluate() so the production threshold behaves exactly as it
+    does for every other percentage figure in the project. Percentage error is
+    only reported over the ramp and midday periods; across a whole day or a
+    whole year the denominator spends too long near zero for the mean to mean
+    anything.
     """
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
-    mask = daylight_mask_for(index=index, **daylight_kwargs)
+    mask = clock_hour_mask(index, hours)
 
     if not mask.any():
         return np.nan
@@ -127,71 +133,3 @@ def daylight_mape(
     )
 
     return mape
-
-
-def daylight_wmape(
-    index,
-    y_true,
-    y_pred,
-    **daylight_kwargs
-):
-    """Total daylight error as a percentage of total daylight production.
-
-    MAPE divides each hour by its own production, so a dawn hour producing a
-    couple of kWh can contribute a percentage error in the hundreds and drag the
-    mean up regardless of how small the absolute miss was. Dividing summed error
-    by summed production instead makes the denominator a period total that no
-    single small hour can distort, which answers the question actually worth
-    asking: what fraction of the energy generated did the forecast get wrong.
-
-    No production threshold is applied. MAPE needs one to keep its per-hour
-    denominators away from zero; this ratio has no such failure mode, so every
-    daylight hour counts.
-    """
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    mask = daylight_mask_for(index=index, **daylight_kwargs)
-
-    if not mask.any():
-        return np.nan
-
-    total_production = np.sum(y_true[mask])
-
-    if total_production <= 0:
-        return np.nan
-
-    total_error = np.sum(
-        np.abs(y_true[mask] - y_pred[mask])
-    )
-
-    return float(100 * total_error / total_production)
-
-
-def daylight_mdape(
-    index,
-    y_true,
-    y_pred,
-    production_threshold=MAPE_PRODUCTION_THRESHOLD,
-    **daylight_kwargs
-):
-    """Median absolute percentage error over scored daylight hours.
-
-    Same mask and same production threshold as daylight_mape, so the pair is
-    directly comparable and the only difference is mean against median. The mean
-    is pulled up by a thin tail of hours whose percentage error is enormous
-    because the denominator is small; the median reports what a typical daylight
-    hour actually looks like.
-    """
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    mask = daylight_mask_for(index=index, **daylight_kwargs)
-    scored = mask & (y_true > production_threshold)
-
-    if not scored.any():
-        return np.nan
-
-    absolute_percentage_error = np.abs(
-        (y_true[scored] - y_pred[scored]) / y_true[scored]
-    )
-
-    return float(100 * np.median(absolute_percentage_error))
