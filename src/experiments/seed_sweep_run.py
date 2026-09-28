@@ -28,8 +28,13 @@ import sys
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import (
+    add_dataset_argument,
+    dataset_arguments
+)
 from src.configs.evaluation import (
     MIDDAY_PERIOD_HOURS,
+    NEURAL_SELECTION_PROTOCOL,
     TEST_OFFSET,
     TEST_STEPS
 )
@@ -51,7 +56,7 @@ from src.training.evaluation import clock_period_mape, evaluate
 
 
 RESULTS_DIR = SEED_SWEEP_RESULTS_DIR
-EXPERIMENT_PROTOCOL = "seed_sweep_final_test_v1"
+EXPERIMENT_PROTOCOL = "seed_sweep_final_test_v2"
 DEFAULT_MODELS = ["gru", "lstm"]
 
 # Fixed pool, kept explicit so a sweep is reproducible. Six seeds doubles the
@@ -77,6 +82,7 @@ def parse_args():
                         help=argparse.SUPPRESS)
     parser.add_argument("--model", help=argparse.SUPPRESS)
     parser.add_argument("--seed", type=int, help=argparse.SUPPRESS)
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -126,6 +132,7 @@ def run_single_seed(model_name, seed):
         "model": model_name,
         "seed": seed,
         "experiment_protocol": EXPERIMENT_PROTOCOL,
+        "selection_protocol": NEURAL_SELECTION_PROTOCOL,
         "seq_len": result["seq_len"],
         "refit_epochs": result["refit_epochs"],
         "feature_count": result["feature_count"],
@@ -161,11 +168,31 @@ def dispatch(model_name, seed):
         "--model",
         model_name,
         "--seed",
-        str(seed)
+        str(seed),
+        *dataset_arguments()
     ]
     completed = subprocess.run(command)
 
     return completed.returncode == 0
+
+
+def is_current_run(metrics_path):
+    """Whether a cached seed was produced under the current protocols.
+
+    File existence alone is not enough: a seed cached before the input data or
+    the tuned settings changed still exists on disk, and reusing it would mix
+    results from two different experiments into one sweep. A run counts only if
+    both its sweep protocol and the tuning protocol it was built on match.
+    """
+    if not metrics_path.exists():
+        return False
+
+    cached = pd.read_csv(metrics_path).iloc[0]
+
+    return (
+        cached.get("experiment_protocol") == EXPERIMENT_PROTOCOL
+        and cached.get("selection_protocol") == NEURAL_SELECTION_PROTOCOL
+    )
 
 
 def load_runs(model_name):
@@ -174,15 +201,24 @@ def load_runs(model_name):
     if not directory.exists():
         return pd.DataFrame(), {}
 
-    metrics = [
-        pd.read_csv(path)
-        for path in sorted(directory.glob("seed_*_metrics.csv"))
-    ]
+    metrics = []
+    current_seeds = set()
+
+    for path in sorted(directory.glob("seed_*_metrics.csv")):
+        if not is_current_run(path):
+            print(f"ignoring stale cached run {path.name} for {model_name}")
+            continue
+
+        metrics.append(pd.read_csv(path))
+        current_seeds.add(int(path.name.split("_")[1]))
+
     predictions = {}
 
     for path in sorted(directory.glob("seed_*_predictions.csv")):
         seed = int(path.name.split("_")[1])
-        predictions[seed] = pd.read_csv(path)["y_pred"].to_numpy()
+
+        if seed in current_seeds:
+            predictions[seed] = pd.read_csv(path)["y_pred"].to_numpy()
 
     if not metrics:
         return pd.DataFrame(), predictions
@@ -271,12 +307,18 @@ def aggregate(models):
 
         y_true = None
         directory = RESULTS_DIR / model_name
-        first_prediction_file = sorted(
-            directory.glob("seed_*_predictions.csv")
-        )
+        current_prediction_files = [
+            seed_paths(model_name, int(seed))[1]
+            for seed in runs["seed"]
+        ]
+        current_prediction_files = [
+            path for path in current_prediction_files if path.exists()
+        ]
 
-        if first_prediction_file:
-            y_true = pd.read_csv(first_prediction_file[0])["y_true"].to_numpy()
+        if current_prediction_files:
+            y_true = pd.read_csv(
+                current_prediction_files[0]
+            )["y_true"].to_numpy()
 
         seed_maes[model_name] = runs["mae"].to_numpy()
         row = {
@@ -378,7 +420,7 @@ def main():
             for seed in args.seeds:
                 metrics_path, _ = seed_paths(model_name, seed)
 
-                if metrics_path.exists() and not args.force:
+                if is_current_run(metrics_path) and not args.force:
                     print(f"skipping {model_name} seed {seed} (cached)")
                     continue
 

@@ -21,6 +21,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import add_dataset_argument
 from src.configs.evaluation import (
     MAPE_PRODUCTION_THRESHOLD,
     RNN_SEEDS,
@@ -65,6 +66,7 @@ def parse_args():
     parser.add_argument("--seeds", nargs="+", type=int, default=list(RNN_SEEDS))
     parser.add_argument("--variants", nargs="+", default=list(LOSS_VARIANTS),
                         choices=list(LOSS_VARIANTS))
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 

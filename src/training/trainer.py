@@ -3,7 +3,9 @@ import random
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, RandomSampler
+
+from src.configs.dataset_selection import STEPS_PER_HOUR
 
 
 def set_random_seed(seed):
@@ -38,10 +40,8 @@ def build_loss(config):
 
 def train_model(
     model,
-    X_train,
-    y_train,
-    X_val,
-    y_val,
+    train_windows,
+    val_windows,
     config,
     seed=42,
     epochs=None
@@ -52,31 +52,36 @@ def train_model(
     pin_memory = device.type == "cuda"
     model = model.to(device)
 
-    train_dataset = TensorDataset(
-        torch.tensor(X_train, dtype=torch.float32),
-        torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
-    )
-
     generator = torch.Generator()
     generator.manual_seed(seed)
+
+    # Each epoch draws one training window per hour of data, afresh each time.
+    # At hourly resolution that is every window. At 10 minutes it is a random
+    # sixth: the training cost of the hourly model, while every minute offset
+    # still turns up across epochs, which matters because all six are scored.
+    #
+    # The loader and the sampler share one generator on purpose. The loader
+    # draws a seed from its own generator at the start of every epoch, and with
+    # shuffle=True that generator is also the sampler's; sharing it here keeps
+    # the hourly batches exactly those shuffle=True produced.
+    sampler = RandomSampler(
+        train_windows,
+        num_samples=max(1, len(train_windows) // STEPS_PER_HOUR),
+        generator=generator
+    )
     train_loader = DataLoader(
-        train_dataset,
+        train_windows,
         batch_size=config.BATCH_SIZE,
-        shuffle=True,
+        sampler=sampler,
         generator=generator,
         pin_memory=pin_memory
     )
 
     val_loader = None
 
-    if X_val is not None and y_val is not None:
-        val_dataset = TensorDataset(
-            torch.tensor(X_val, dtype=torch.float32),
-            torch.tensor(y_val, dtype=torch.float32).view(-1, 1)
-        )
-
+    if val_windows is not None:
         val_loader = DataLoader(
-            val_dataset,
+            val_windows,
             batch_size=config.BATCH_SIZE,
             shuffle=False,
             pin_memory=pin_memory

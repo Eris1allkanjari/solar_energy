@@ -8,12 +8,16 @@ import numpy as np
 import pandas as pd
 import torch
 
+from src.configs.dataset_selection import (
+    add_dataset_argument,
+    hours_to_steps
+)
 from src.configs.config import ExperimentConfig
 from src.configs.evaluation import (
     AR_REFIT_INTERVAL,
     PV_QUALITY_THRESHOLD,
     TEST_OFFSET,
-    VALIDATION_END_RATIO
+    split_positions
 )
 from src.data.loader import load_dataset
 from src.experiments.ar_parameter_tuning_run import get_ar_model_builder
@@ -61,10 +65,13 @@ def parse_args():
         default=MODEL_CHOICES
     )
     parser.add_argument(
-        "--test-steps",
+        "--test-hours",
         type=int,
         default=168,
-        help="Common forecast horizon used only for computational benchmarking."
+        help=(
+            "Common forecast horizon in hours, used only for computational "
+            "benchmarking. Converted to steps of the active dataset."
+        )
     )
     parser.add_argument(
         "--repeats",
@@ -82,7 +89,12 @@ def parse_args():
             "benchmark the exact final ensemble."
         )
     )
-    return parser.parse_args()
+    add_dataset_argument(parser)
+    args = parser.parse_args()
+    # Everything downstream counts forecasts, so the horizon is carried
+    # in steps of the active dataset from here on.
+    args.test_steps = hours_to_steps(args.test_hours)
+    return args
 
 
 def validate_args(args):
@@ -504,9 +516,7 @@ def main():
     df = load_dataset(DATA_FILE_PATH)
     df_proc = prepare_dataframe(df)
     quality_df = load_pv_quality()
-    test_start_index = int(
-        len(df_proc) * VALIDATION_END_RATIO
-    ) + TEST_OFFSET
+    test_start_index = split_positions(len(df_proc))[1] + TEST_OFFSET
     benchmark_index = df_proc.index[
         test_start_index:test_start_index + args.test_steps
     ]

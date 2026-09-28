@@ -12,6 +12,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import add_dataset_argument
 from src.configs.evaluation import (
     DAYLIGHT_ELEVATION_DEGREES,
     MAPE_PRODUCTION_THRESHOLD,
@@ -44,6 +45,7 @@ def parse_args():
         default=40,
         help="How many worst-APE hours to list in the trailing summary."
     )
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -80,6 +82,9 @@ def add_day_position(frame):
         frame["solar_elevation_deg"] > DAYLIGHT_ELEVATION_DEGREES
     )
     frame["hour_of_day"] = index.hour
+    # Position within the day uses the fractional hour, so at 10-minute
+    # resolution the intervals of one hour get distinct positions.
+    frame["clock_hour"] = index.hour + index.minute / 60
     frame["day_fraction"] = np.nan
 
     for _, day_rows in frame.groupby(index.date):
@@ -88,15 +93,15 @@ def add_day_position(frame):
         if len(lit) < 2:
             continue
 
-        first_hour = lit["hour_of_day"].iloc[0]
-        last_hour = lit["hour_of_day"].iloc[-1]
+        first_hour = lit["clock_hour"].iloc[0]
+        last_hour = lit["clock_hour"].iloc[-1]
         span = last_hour - first_hour
 
         if span <= 0:
             continue
 
         frame.loc[lit.index, "day_fraction"] = (
-            lit["hour_of_day"] - first_hour
+            lit["clock_hour"] - first_hour
         ) / span
 
     return frame

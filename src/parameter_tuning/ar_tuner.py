@@ -1,4 +1,7 @@
 import itertools
+import os
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -8,9 +11,8 @@ from src.configs.evaluation import (
     AR_REFIT_INTERVAL,
     EXOG_LAG_STEPS,
     SELECTION_PROTOCOL,
-    TRAIN_RATIO,
-    VALIDATION_END_RATIO,
-    VALIDATION_STEPS
+    VALIDATION_STEPS,
+    split_positions
 )
 from src.forecasting.rolling_forecast import rolling_forecast
 from src.parameter_tuning.selection import (
@@ -67,8 +69,7 @@ def prepare_ar_data(df):
 
     n_raw = len(y)
 
-    train_end = int(n_raw * TRAIN_RATIO)
-    val_end = int(n_raw * VALIDATION_END_RATIO)
+    train_end, val_end = split_positions(n_raw)
 
     y_train = y.iloc[:train_end]
     y_val = y.iloc[train_end:val_end]
@@ -239,6 +240,105 @@ def evaluate_on_validation(
     return result
 
 
+def _key_text(value):
+    if value is None:
+        return ""
+
+    if isinstance(value, float):
+        if np.isnan(value):
+            return ""
+
+        if value.is_integer():
+            value = int(value)
+
+    text = str(value)
+
+    # pandas reads the text None back as NaN, so both spell "no value".
+    return "" if text in {"None", "nan"} else text
+
+
+def configuration_key(
+    seq_len,
+    order,
+    seasonal_order,
+    exog_features,
+    max_iter,
+    enforce_stationarity,
+    enforce_invertibility
+):
+    return tuple(
+        _key_text(value)
+        for value in (
+            seq_len,
+            order,
+            seasonal_order,
+            exog_features,
+            max_iter,
+            enforce_stationarity,
+            enforce_invertibility
+        )
+    )
+
+
+def params_key(window_length, params):
+    exog_features = params.get("exog_features")
+
+    return configuration_key(
+        window_length,
+        params.get("order"),
+        params.get("seasonal_order"),
+        ",".join(exog_features) if exog_features else None,
+        params.get("max_iter"),
+        params.get("enforce_stationarity"),
+        params.get("enforce_invertibility")
+    )
+
+
+def result_key(result):
+    return configuration_key(
+        result.get("seq_len"),
+        result.get("order"),
+        result.get("seasonal_order"),
+        result.get("exog_features"),
+        result.get("max_iter"),
+        result.get("enforce_stationarity"),
+        result.get("enforce_invertibility")
+    )
+
+
+def load_checkpoint(checkpoint_path):
+    """Completed results from an interrupted run under the current protocol.
+
+    Rows written under another protocol or dataset describe a different
+    experiment and are ignored, so they are recomputed rather than reused.
+    """
+    if checkpoint_path is None or not Path(checkpoint_path).exists():
+        return {}
+
+    rows = pd.read_csv(checkpoint_path).to_dict(orient="records")
+
+    return {
+        result_key(row): row
+        for row in rows
+        if row.get("selection_protocol") == SELECTION_PROTOCOL
+    }
+
+
+def save_checkpoint(checkpoint_path, results):
+    """Rewrite the checkpoint with every result completed so far.
+
+    Success and failure rows carry different columns, so appending would
+    misalign them; the whole file is rewritten instead, which is cheap at grid
+    sizes of a few dozen. Writing beside the file and then renaming keeps an
+    interruption mid-write from leaving a truncated checkpoint.
+    """
+    checkpoint_path = Path(checkpoint_path)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = checkpoint_path.with_suffix(".tmp")
+    pd.DataFrame(results).to_csv(temporary_path, index=False)
+    os.replace(temporary_path, checkpoint_path)
+
+
 def tune_ar_model(
     model_name,
     build_model,
@@ -246,11 +346,27 @@ def tune_ar_model(
     param_grid,
     window_lengths,
     validation_steps=VALIDATION_STEPS,
-    refit_interval=AR_REFIT_INTERVAL
+    refit_interval=AR_REFIT_INTERVAL,
+    checkpoint_path=None
 ):
+    """Evaluate every window length and parameter combination on validation.
+
+    With a checkpoint path, each configuration's result is saved as soon as it
+    finishes, and a rerun after an interruption skips the configurations
+    already done. Seasonal models at 10-minute resolution can run for days, so
+    losing all progress to one crash is not acceptable.
+    """
     y_train, y_val, y_test, exog_train, exog_val, exog_test = prepare_ar_data(
         df
     )
+
+    completed = load_checkpoint(checkpoint_path)
+
+    if completed:
+        print(
+            f"resuming {model_name}: {len(completed)} configurations "
+            "already completed"
+        )
 
     all_results = []
     best_per_l = []
@@ -263,6 +379,14 @@ def tune_ar_model(
         results_for_l = []
 
         for params in generate_param_combinations(param_grid):
+            key = params_key(window_length, params)
+
+            if key in completed:
+                result = completed[key]
+                all_results.append(result)
+                results_for_l.append(result)
+                continue
+
             try:
                 result = evaluate_on_validation(
                     model_name=model_name,
@@ -328,6 +452,9 @@ def tune_ar_model(
 
             all_results.append(result)
             results_for_l.append(result)
+
+            if checkpoint_path is not None:
+                save_checkpoint(checkpoint_path, all_results)
 
         try:
             best_per_l.append(

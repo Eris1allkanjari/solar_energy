@@ -1,4 +1,9 @@
-SEQ_LENGTHS = [24, 48, 72, 96, 168]
+from src.configs.dataset_selection import hours_to_steps
+
+# Input history in hours, converted to rows of the active dataset, so a
+# 10-minute model sees the same span of time as an hourly one.
+SEQ_LENGTH_HOURS = [24, 48, 72, 96, 168]
+SEQ_LENGTHS = [hours_to_steps(hours) for hours in SEQ_LENGTH_HOURS]
 
 HYPERPARAMETER_GRIDS = {
     "lstm": {

@@ -1,12 +1,16 @@
-from src.configs.evaluation import MIN_SEASONAL_WINDOW
+from src.configs.dataset_selection import hours_to_steps
+from src.configs.evaluation import MIN_SEASONAL_WINDOW, SEASONAL_PERIOD
 
 
-AR_WINDOW_LENGTHS = [
+# Rolling fit windows of 7, 14, 30 and 60 days, in hours, converted to rows of
+# the active dataset.
+AR_WINDOW_HOURS = [
     24 * 7,
     24 * 14,
     24 * 30,
     24 * 60
 ]
+AR_WINDOW_LENGTHS = [hours_to_steps(hours) for hours in AR_WINDOW_HOURS]
 
 AR_WINDOW_LENGTHS_BY_MODEL = {
     "arima": AR_WINDOW_LENGTHS,
@@ -41,8 +45,8 @@ AR_HYPERPARAMETER_GRIDS = {
             (2, 0, 1)
         ],
         "seasonal_order": [
-            (1, 0, 1, 24),
-            (1, 1, 1, 24)
+            (1, 0, 1, SEASONAL_PERIOD),
+            (1, 1, 1, SEASONAL_PERIOD)
         ],
         "max_iter": [200],
         "enforce_stationarity": [False],
@@ -77,8 +81,8 @@ AR_HYPERPARAMETER_GRIDS = {
             (2, 0, 1)
         ],
         "seasonal_order": [
-            (1, 0, 1, 24),
-            (1, 1, 1, 24)
+            (1, 0, 1, SEASONAL_PERIOD),
+            (1, 1, 1, SEASONAL_PERIOD)
         ],
         "exog_features": [
             [

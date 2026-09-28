@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import (
+    add_dataset_argument,
+    hours_to_steps
+)
 from src.configs.evaluation import (
     AR_REFIT_INTERVAL,
     PV_QUALITY_THRESHOLD,
@@ -95,6 +99,7 @@ def parse_args():
             "change that only affects presentation."
         )
     )
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -121,7 +126,7 @@ def available_feature_groups(features):
 def moving_block_bootstrap(
     loss_difference,
     samples,
-    block_hours,
+    block_steps,
     seed
 ):
     values = np.asarray(loss_difference, dtype=float)
@@ -130,12 +135,12 @@ def moving_block_bootstrap(
     if n_values == 0:
         raise ValueError("loss_difference cannot be empty")
 
-    if samples <= 0 or block_hours <= 0:
+    if samples <= 0 or block_steps <= 0:
         raise ValueError("bootstrap samples and block hours must be positive")
 
     generator = np.random.default_rng(seed)
-    block_count = int(np.ceil(n_values / block_hours))
-    offsets = np.arange(block_hours)
+    block_count = int(np.ceil(n_values / block_steps))
+    offsets = np.arange(block_steps)
     bootstrap_means = np.empty(samples, dtype=float)
 
     for sample_index in range(samples):
@@ -367,7 +372,7 @@ def compare_with_reference(
     predictions,
     reference_predictions,
     bootstrap_samples,
-    block_hours,
+    block_steps,
     bootstrap_seed
 ):
     if not row["accepted"] or not reference_row["accepted"]:
@@ -392,7 +397,7 @@ def compare_with_reference(
     lower, upper, p_value = moving_block_bootstrap(
         loss_difference=loss_difference,
         samples=bootstrap_samples,
-        block_hours=block_hours,
+        block_steps=block_steps,
         seed=bootstrap_seed
     )
     delta_mae = float(loss_difference.mean())
@@ -586,7 +591,7 @@ def run_model(model_name, feature_df, quality_df, args):
                 predictions=predictions,
                 reference_predictions=reference_predictions,
                 bootstrap_samples=args.bootstrap_samples,
-                block_hours=args.block_hours,
+                block_steps=hours_to_steps(args.block_hours),
                 bootstrap_seed=args.bootstrap_seed + group_index
             )
         )

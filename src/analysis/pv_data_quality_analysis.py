@@ -3,12 +3,14 @@ import pandas as pd
 
 from src.configs.evaluation import TRAIN_RATIO, VALIDATION_END_RATIO
 from src.experiments.constants import (
-    ANALYSIS_RESULTS_DIR,
+    PV_QUALITY_RESULTS_DIR,
     RAW_PV_FILE_PATH
 )
 
 
-RESULTS_DIR = ANALYSIS_RESULTS_DIR
+# The audit covers the PV record alone, so it writes to one fixed folder
+# whichever dataset is active.
+RESULTS_DIR = PV_QUALITY_RESULTS_DIR
 CHUNK_SIZE = 100_000
 EXPECTED_MINUTES_PER_HOUR = 60
 

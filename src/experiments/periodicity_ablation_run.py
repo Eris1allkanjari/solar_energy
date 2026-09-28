@@ -21,6 +21,10 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import (
+    add_dataset_argument,
+    hours_to_steps
+)
 from src.configs.evaluation import (
     MAPE_PRODUCTION_THRESHOLD,
     PV_QUALITY_THRESHOLD,
@@ -91,6 +95,7 @@ def parse_args():
         default=72,
         help="Width of the qualitative comparison window in hours."
     )
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -358,7 +363,7 @@ def main():
         predictions_by_model=predictions,
         output_path=str(RESULTS_DIR / f"{prefix}_forecast_zoom.png"),
         start=0,
-        hours=args.zoom_hours
+        hours=hours_to_steps(args.zoom_hours)
     )
 
     columns = [

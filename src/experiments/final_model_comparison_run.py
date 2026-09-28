@@ -18,8 +18,13 @@ from src.configs.evaluation import (
     SELECTION_PROTOCOL,
     TEST_OFFSET,
     TEST_STEPS,
-    VALIDATION_END_RATIO,
-    VALIDATION_STEPS
+    VALIDATION_STEPS,
+    split_positions
+)
+from src.configs.dataset_selection import (
+    ACTIVE_DATASET,
+    add_dataset_argument,
+    hours_to_steps
 )
 from src.data.loader import load_dataset
 from src.experiments.ar_parameter_tuning_run import get_ar_model_builder
@@ -131,6 +136,7 @@ def parse_args():
         )
     )
 
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -224,21 +230,42 @@ def load_existing_summaries(
 
 
 def load_pv_quality():
-    if not PV_QUALITY_HOURLY_PATH.exists():
-        raise FileNotFoundError(
-            "missing PV quality audit. Run "
-            "python -m src.analysis.pv_data_quality_analysis first."
-        )
+    """PV coverage per interval of the active dataset, indexed by time.
 
-    quality_df = pd.read_csv(PV_QUALITY_HOURLY_PATH)
-    quality_df["time"] = pd.to_datetime(
-        quality_df["time"],
-        utc=True
-    ).dt.tz_localize(None)
-    quality_df = quality_df.set_index("time")
+    Datasets built from the 10-minute record carry their own coverage column at
+    their own resolution, so the quality mask always lines up with the rows
+    being scored. The validated hourly dataset predates that column and reads
+    the separate hourly PV audit instead.
+
+    The fully_missing_hour column keeps its historical name at every
+    resolution; at 10 minutes it marks a fully missing 10-minute interval.
+    """
+    if ACTIVE_DATASET.coverage_in_file:
+        quality_df = pd.read_csv(
+            DATA_FILE_PATH,
+            usecols=["time", "observation_fraction"]
+        )
+        quality_df["time"] = pd.to_datetime(quality_df["time"])
+        quality_df = quality_df.set_index("time")
+        quality_df["fully_missing_hour"] = quality_df[
+            "observation_fraction"
+        ].eq(0)
+    else:
+        if not PV_QUALITY_HOURLY_PATH.exists():
+            raise FileNotFoundError(
+                "missing PV quality audit. Run "
+                "python -m src.analysis.pv_data_quality_analysis first."
+            )
+
+        quality_df = pd.read_csv(PV_QUALITY_HOURLY_PATH)
+        quality_df["time"] = pd.to_datetime(
+            quality_df["time"],
+            utc=True
+        ).dt.tz_localize(None)
+        quality_df = quality_df.set_index("time")
 
     if quality_df.index.duplicated().any():
-        raise ValueError("PV quality audit contains duplicate timestamps")
+        raise ValueError("PV quality data contains duplicate timestamps")
 
     return quality_df
 
@@ -853,7 +880,7 @@ def save_comparison(summaries):
 def run_baseline(model_name, df_proc, test_start_index, test_steps):
     lags = {
         "persistence": 1,
-        "seasonal_naive_24h": 24
+        "seasonal_naive_24h": hours_to_steps(24)
     }
     lag = lags[model_name]
     target = df_proc["pv_total_kWh"]
@@ -948,7 +975,7 @@ def main():
     quality_df = load_pv_quality()
 
     n_raw = len(df_proc)
-    test_split_start = int(n_raw * VALIDATION_END_RATIO)
+    _, test_split_start = split_positions(n_raw)
     test_start_index = test_split_start + TEST_OFFSET
     test_df = df_proc.iloc[test_start_index:]
 

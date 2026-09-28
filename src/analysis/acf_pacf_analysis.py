@@ -8,10 +8,17 @@ from statsmodels.graphics.tsaplots import (
 
 from src.data.loader import load_dataset
 from src.data.preprocessing import clean_data
-from src.configs.evaluation import TRAIN_RATIO
+from src.configs.dataset_selection import STEPS_PER_HOUR, hours_to_steps
+from src.configs.evaluation import split_positions
 from src.experiments.constants import ANALYSIS_RESULTS_DIR, DATA_FILE_PATH
 
 RESULTS_DIR = ANALYSIS_RESULTS_DIR
+
+# A week of lags, whatever the resolution, so the daily and weekly structure is
+# visible in both datasets.
+LAG_HOURS = 168
+LAGS = hours_to_steps(LAG_HOURS)
+LAG_UNIT = "hours" if STEPS_PER_HOUR == 1 else "10-minute steps"
 
 
 def analyze_acf_pacf(
@@ -39,7 +46,7 @@ def analyze_acf_pacf(
         "training-set autocorrelation function (ACF)"
     )
     axes[0].set_xlabel(
-        "lag k (hours before the current hour)"
+        f"lag k ({LAG_UNIT} before the current one)"
     )
     axes[0].set_ylabel(
         "correlation of pv_total_kWh with itself k hours earlier"
@@ -57,7 +64,7 @@ def analyze_acf_pacf(
         "training-set partial autocorrelation function (PACF)"
     )
     axes[1].set_xlabel(
-        "lag k (hours before the current hour)"
+        f"lag k ({LAG_UNIT} before the current one)"
     )
     axes[1].set_ylabel(
         "direct correlation at lag k, shorter lags removed"
@@ -94,7 +101,7 @@ def main():
         DATA_FILE_PATH
     )
 
-    train_end = int(len(df) * TRAIN_RATIO)
+    train_end, _ = split_positions(len(df))
     training_df = clean_data(
         df.iloc[:train_end][["pv_total_kWh"]]
     )
@@ -107,7 +114,7 @@ def main():
 
     analyze_acf_pacf(
         y,
-        lags=168,
+        lags=LAGS,
         output_path=output_path
     )
 
@@ -120,7 +127,8 @@ def main():
                 "start": y.index[0],
                 "end": y.index[-1],
                 "observations": len(y),
-                "lags": 168
+                "lags": LAGS,
+                "lag_hours": LAG_HOURS
             }
         ]
     ).to_csv(metadata_path, index=False)
