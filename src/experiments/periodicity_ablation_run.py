@@ -53,7 +53,7 @@ from src.parameter_tuning.tuner import (
     params_from_best_setting,
     parse_seeds
 )
-from src.training.evaluation import evaluate
+from src.training.evaluation import evaluate, period_mapes
 
 
 RESULTS_DIR = PERIODICITY_ABLATION_RESULTS_DIR
@@ -236,12 +236,19 @@ def summarize(variant, run, split, quality_df):
         "mae_std": metric_std[0],
         "rmse": metrics[1],
         "rmse_std": metric_std[1],
-        "mape": metrics[2],
+        # Percentage error only over the upwards/downwards and by-day hours.
+        **period_mapes(run["index"], y_true, seed_predictions),
         "ensemble_mae": ensemble_metrics[0],
         "ensemble_rmse": ensemble_metrics[1],
         "high_quality_mae": quality_metrics[0],
         "high_quality_rmse": quality_metrics[1],
-        "high_quality_mape": quality_metrics[2],
+        **period_mapes(
+            run["index"],
+            y_true,
+            seed_predictions,
+            mask=quality_mask,
+            prefix="high_quality_"
+        ),
         "block_mae_mean": block_metrics["val_block_mae_mean"],
         "block_mae_std": block_metrics["val_block_mae_std"]
     }

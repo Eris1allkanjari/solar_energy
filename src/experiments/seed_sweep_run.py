@@ -33,8 +33,9 @@ from src.configs.dataset_selection import (
     dataset_arguments
 )
 from src.configs.evaluation import (
-    MIDDAY_PERIOD_HOURS,
+    BY_DAY_PERIOD_HOURS,
     NEURAL_SELECTION_PROTOCOL,
+    UPWARDS_DOWNWARDS_PERIOD_HOURS,
     TEST_OFFSET,
     TEST_STEPS
 )
@@ -121,7 +122,7 @@ def run_single_seed(model_name, seed):
     y_pred = np.asarray(result["y_pred"])
     quality_mask = np.asarray(result["pv_observation_fraction"]) >= 0.5
 
-    mae, rmse, mape = evaluate(y_true, y_pred)
+    mae, rmse, _ = evaluate(y_true, y_pred)
     quality_mae, quality_rmse, _ = evaluate(
         y_true[quality_mask],
         y_pred[quality_mask]
@@ -138,9 +139,13 @@ def run_single_seed(model_name, seed):
         "feature_count": result["feature_count"],
         "mae": mae,
         "rmse": rmse,
-        "mape": mape,
-        "midday_mape": clock_period_mape(
-            index, y_true, y_pred, MIDDAY_PERIOD_HOURS
+        # Percentage error only over the two daylight periods, as in the final
+        # comparison; over the whole period its denominator is too often zero.
+        "upwards_downwards_mape": clock_period_mape(
+            index, y_true, y_pred, UPWARDS_DOWNWARDS_PERIOD_HOURS
+        ),
+        "by_day_mape": clock_period_mape(
+            index, y_true, y_pred, BY_DAY_PERIOD_HOURS
         ),
         "high_quality_mae": quality_mae,
         "high_quality_rmse": quality_rmse,

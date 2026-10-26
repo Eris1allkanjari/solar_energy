@@ -281,7 +281,7 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
             n_features
         )
         block_pred = np.clip(block_pred, 0, None)
-        mae, rmse, mape = evaluate(block_true, block_pred)
+        mae, rmse, _ = evaluate(block_true, block_pred)
         block_rows.append(
             {
                 "block": block,
@@ -292,7 +292,6 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
                 "best_epoch": model.best_epoch,
                 "mae": mae,
                 "rmse": rmse,
-                "mape": mape,
                 "seed": seed,
                 "experiment_protocol": EXPERIMENT_PROTOCOL
             }
@@ -312,7 +311,7 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
         n_features
     )
     y_pred = np.clip(y_pred, 0, None)
-    mae, rmse, mape = evaluate(y_true, y_pred)
+    mae, rmse, _ = evaluate(y_true, y_pred)
     monthly_metrics = calculate_monthly_validation_metrics(
         index=validation_index,
         y_true=y_true,
@@ -329,7 +328,6 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
         **monthly_metrics,
         "val_mae": mae,
         "val_rmse": rmse,
-        "val_mape": mape,
         "experiment_protocol": EXPERIMENT_PROTOCOL
     }
     return summary, block_rows
@@ -377,6 +375,7 @@ def run_specialist_experiment(df, seed, time_feature_results=None):
 def main():
     args = parse_args()
     selected_experiments = set(args.experiments)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     df = load_dataset(DATA_FILE_PATH)
     time_feature_results = None
 

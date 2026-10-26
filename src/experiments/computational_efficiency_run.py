@@ -44,7 +44,7 @@ from src.parameter_tuning.tuner import (
     params_from_best_setting as neural_params_from_best_setting,
     parse_seeds
 )
-from src.training.evaluation import evaluate
+from src.training.evaluation import evaluate, period_mapes
 
 
 RESULTS_DIR = EFFICIENCY_RESULTS_DIR
@@ -192,19 +192,41 @@ def timed_call(function, neural=False):
     return result, float(elapsed_seconds), float(peak_gpu_memory_mb)
 
 
+def prediction_sets(result, ensemble=False):
+    """Prediction arrays to score: one per seed, or the single forecast.
+
+    For neural models y_pred is the average of the seed predictions, so it is
+    the right array to score only when the ensemble itself is being measured.
+    """
+    seed_predictions = result.get("seed_predictions")
+
+    if ensemble or seed_predictions is None:
+        return [result["y_pred"]]
+
+    return list(seed_predictions)
+
+
 def metric_values(result, ensemble=False):
+    # Percentage error only over the upwards/downwards and by-day hours, as in
+    # the final comparison; over the whole period it is not reported.
+    mapes = period_mapes(
+        result["test_index"],
+        result["y_test"],
+        prediction_sets(result, ensemble)
+    )
+
     if ensemble:
         return {
             "mae": result["ensemble_mae"],
             "rmse": result["ensemble_rmse"],
-            "mape": result["ensemble_mape"],
+            **mapes,
             "metric_aggregation": "seed_ensemble_mean"
         }
 
     return {
         "mae": result["mae"],
         "rmse": result["rmse"],
-        "mape": result["mape"],
+        **mapes,
         "metric_aggregation": result.get(
             "metric_aggregation",
             "deterministic"
@@ -240,7 +262,13 @@ def quality_metric_values(result):
         "high_quality_coverage": float(mask.mean()),
         "high_quality_mae": metrics[0],
         "high_quality_rmse": metrics[1],
-        "high_quality_mape": metrics[2]
+        **period_mapes(
+            result["test_index"],
+            result["y_test"],
+            prediction_sets(result),
+            mask=mask,
+            prefix="high_quality_"
+        )
     }
 
 
@@ -432,7 +460,10 @@ def summarize(raw_df):
                 ].mean(),
                 "mae": model_df["mae"].mean(),
                 "rmse": model_df["rmse"].mean(),
-                "mape": model_df["mape"].mean(),
+                "upwards_downwards_mape": model_df[
+                    "upwards_downwards_mape"
+                ].mean(),
+                "by_day_mape": model_df["by_day_mape"].mean(),
                 "high_quality_samples": first["high_quality_samples"],
                 "high_quality_coverage": first["high_quality_coverage"],
                 "high_quality_mae": model_df[
@@ -441,8 +472,11 @@ def summarize(raw_df):
                 "high_quality_rmse": model_df[
                     "high_quality_rmse"
                 ].mean(),
-                "high_quality_mape": model_df[
-                    "high_quality_mape"
+                "high_quality_upwards_downwards_mape": model_df[
+                    "high_quality_upwards_downwards_mape"
+                ].mean(),
+                "high_quality_by_day_mape": model_df[
+                    "high_quality_by_day_mape"
                 ].mean(),
                 "metric_aggregation": first["metric_aggregation"],
                 "execution_device": first["execution_device"],

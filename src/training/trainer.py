@@ -97,6 +97,11 @@ def train_model(
         weight_decay=config.WEIGHT_DECAY
     )
 
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer,
+        gamma=config.LR_DECAY
+    )
+
     best_val_loss = float("inf")
     best_state = None
     best_epoch = 0
@@ -134,6 +139,7 @@ def train_model(
             train_loss += loss.item()
 
         train_loss /= len(train_loader)
+        scheduler.step()
 
         if val_loader is None:
             print(

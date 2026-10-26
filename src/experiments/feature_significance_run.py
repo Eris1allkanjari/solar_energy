@@ -315,11 +315,12 @@ def base_row(
     predictions,
     seeds
 ):
-    all_mae, all_rmse, all_mape = prediction_metrics(
+    # Feature significance is judged on MAE; whole-period MAPE is not recorded.
+    all_mae, all_rmse, _ = prediction_metrics(
         predictions
     )
     quality_mask = predictions["high_quality_mask"]
-    mae, rmse, mape = prediction_metrics(
+    mae, rmse, _ = prediction_metrics(
         predictions,
         mask=quality_mask
     )
@@ -352,10 +353,8 @@ def base_row(
         "accepted": bool(result.get("fit_converged", True)),
         "mae": mae,
         "rmse": rmse,
-        "mape": mape,
         "all_hour_mae": all_mae,
         "all_hour_rmse": all_rmse,
-        "all_hour_mape": all_mape,
         "delta_mae": np.nan,
         "delta_mae_percent": np.nan,
         "delta_mae_ci_lower": np.nan,

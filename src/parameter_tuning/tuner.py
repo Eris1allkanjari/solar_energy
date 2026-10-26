@@ -166,7 +166,10 @@ def evaluate_on_validation(
             None
         )
 
-        mae, rmse, mape = evaluate(
+        # MAPE over the whole period is not recorded: its denominator is too
+        # often near zero there. It is reported only for the final test, over
+        # the upwards/downwards and by-day hours.
+        mae, rmse, _ = evaluate(
             y_val_rescaled,
             y_val_pred_rescaled
         )
@@ -179,8 +182,7 @@ def evaluate_on_validation(
             {
                 **block_metrics,
                 "val_mae": mae,
-                "val_rmse": rmse,
-                "val_mape": mape
+                "val_rmse": rmse
             }
         )
         seed_predictions.append(y_val_pred_rescaled)
@@ -221,6 +223,7 @@ def evaluate_on_validation(
         "loss": config.LOSS,
         "weight_decay": config.WEIGHT_DECAY,
         "gradient_clip": config.GRADIENT_CLIP,
+        "lr_decay": config.LR_DECAY,
         "shuffle_training": True,
         "seeds": ",".join(str(seed) for seed in seeds),
         "seed_count": len(seeds),
@@ -244,8 +247,7 @@ def evaluate_on_validation(
         "val_seed_mae_values": metric_values_text("val_mae"),
         "val_seed_rmse_values": metric_values_text("val_rmse"),
         "val_mae": metric_mean("val_mae"),
-        "val_rmse": metric_mean("val_rmse"),
-        "val_mape": metric_mean("val_mape")
+        "val_rmse": metric_mean("val_rmse")
     }
 
     if return_predictions:
@@ -356,7 +358,8 @@ def params_from_best_setting(best_setting):
         "patience": int(best_setting["patience"]),
         "loss": best_setting.get("loss", "mae"),
         "weight_decay": float(best_setting.get("weight_decay", 1e-5)),
-        "gradient_clip": float(best_setting.get("gradient_clip", 1.0))
+        "gradient_clip": float(best_setting.get("gradient_clip", 1.0)),
+        "lr_decay": float(best_setting["lr_decay"])
     }
 
 
@@ -485,15 +488,15 @@ def final_test(
         seed_predictions,
         axis=0
     )
-    ensemble_mae, ensemble_rmse, ensemble_mape = evaluate(
+    ensemble_mae, ensemble_rmse, _ = evaluate(
         y_test_rescaled,
         y_pred_rescaled
     )
-    mae, rmse, mape = np.mean(
+    mae, rmse, _ = np.mean(
         metric_values,
         axis=0
     )
-    mae_std, rmse_std, mape_std = np.std(
+    mae_std, rmse_std, _ = np.std(
         metric_values,
         axis=0,
         ddof=0
@@ -514,6 +517,7 @@ def final_test(
         "loss": config.LOSS,
         "weight_decay": config.WEIGHT_DECAY,
         "gradient_clip": config.GRADIENT_CLIP,
+        "lr_decay": config.LR_DECAY,
         "shuffle_training": True,
         "seeds": ",".join(str(seed) for seed in seeds),
         "seed_count": len(seeds),
@@ -536,11 +540,8 @@ def final_test(
         "mae_std": mae_std,
         "rmse": rmse,
         "rmse_std": rmse_std,
-        "mape": mape,
-        "mape_std": mape_std,
         "ensemble_mae": ensemble_mae,
         "ensemble_rmse": ensemble_rmse,
-        "ensemble_mape": ensemble_mape,
         "seed_predictions": np.asarray(seed_predictions),
         "test_index": test_df.index,
         "y_test": y_test_rescaled,

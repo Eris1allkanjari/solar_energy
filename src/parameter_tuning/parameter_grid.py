@@ -1,3 +1,4 @@
+from src.configs.config import DEFAULT_LR_DECAY
 from src.configs.dataset_selection import hours_to_steps
 
 # Input history in hours, converted to rows of the active dataset, so a
@@ -16,7 +17,8 @@ HYPERPARAMETER_GRIDS = {
         "patience": [5],
         "loss": ["mae"],
         "weight_decay": [1e-5],
-        "gradient_clip": [1.0]
+        "gradient_clip": [1.0],
+        "lr_decay": [DEFAULT_LR_DECAY]
     },
 
     "gru": {
@@ -29,7 +31,8 @@ HYPERPARAMETER_GRIDS = {
         "patience": [5],
         "loss": ["mae"],
         "weight_decay": [1e-5],
-        "gradient_clip": [1.0]
+        "gradient_clip": [1.0],
+        "lr_decay": [DEFAULT_LR_DECAY]
     },
 
     "attention": {
@@ -42,6 +45,7 @@ HYPERPARAMETER_GRIDS = {
         "patience": [5],
         "loss": ["mae"],
         "weight_decay": [1e-5],
-        "gradient_clip": [1.0]
+        "gradient_clip": [1.0],
+        "lr_decay": [DEFAULT_LR_DECAY]
     }
 }

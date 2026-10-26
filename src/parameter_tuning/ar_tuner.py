@@ -183,7 +183,8 @@ def evaluate_on_validation(
         return_diagnostics=True
     )
 
-    mae, rmse, mape = evaluate(
+    # MAPE over the whole period is not recorded; see the neural tuner.
+    mae, rmse, _ = evaluate(
         y_val_eval,
         predictions
     )
@@ -226,8 +227,7 @@ def evaluate_on_validation(
         **fit_diagnostics,
         **block_metrics,
         "val_mae": mae,
-        "val_rmse": rmse,
-        "val_mape": mape
+        "val_rmse": rmse
     }
 
     if return_predictions:
@@ -446,7 +446,6 @@ def tune_ar_model(
                     "val_block_rmse_std": np.nan,
                     "val_mae": np.nan,
                     "val_rmse": np.nan,
-                    "val_mape": np.nan,
                     "error": str(e)
                 }
 
@@ -661,7 +660,7 @@ def final_test(
         None
     )
 
-    mae, rmse, mape = evaluate(
+    mae, rmse, _ = evaluate(
         y_test_eval,
         predictions
     )
@@ -715,7 +714,6 @@ def final_test(
         ),
         "mae": mae,
         "rmse": rmse,
-        "mape": mape,
         "test_index": y_test_eval.index,
         "y_test": y_test_eval.to_numpy(),
         "y_pred": np.asarray(predictions)

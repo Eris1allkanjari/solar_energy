@@ -161,7 +161,6 @@ def run_variant(model_name, df_proc, best_setting, variant, seeds):
         "val_block_mae_std": result["val_block_mae_std"],
         "val_mae": result["val_mae"],
         "val_rmse": result["val_rmse"],
-        "val_mape": result["val_mape"],
         "val_seed_mae_std": result["val_seed_mae_std"],
         **peak_diagnostics(y_true, y_pred)
     }

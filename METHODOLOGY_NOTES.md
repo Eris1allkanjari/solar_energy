@@ -123,8 +123,8 @@ Reported metrics split each day by clock hour:
 |---|---|
 | day | 06–17 |
 | night | 18–05 (the complement of day) |
-| ramp | 06–09 and 15–17 |
-| midday | 10–14 |
+| upwards/downwards | 06–09 and 15–17 |
+| by day | 10–14 |
 
 Clock hours need no site geometry to interpret, so a reported figure can be
 reproduced from the timestamp alone. The cost is that clock periods do not
@@ -140,14 +140,16 @@ reported metric.
 
 ### Which metric is reported where
 
-| period | reported |
+| period | reported (`final_model_reported_metrics.csv`) |
 |---|---|
-| whole | MAE, NMAE, RMSE |
-| day / night | MAE, NMAE |
-| ramp / midday | MAPE |
+| whole | NMAE (`nmae`) |
+| day / night | NMAE (`day_nmae`, `night_nmae`) |
+| upwards/downwards | MAPE (`upwards_downwards_mape`) |
+| by day | MAPE (`by_day_mape`) |
 
 MAPE is never reported for night or for the whole period, since a denominator
-near zero makes it meaningless there.
+near zero makes it meaningless there. Unscaled MAE, RMSE and the NMAE divisor
+remain available in `final_model_comparison.csv`.
 
 ### Why MAE is split into day and night
 
@@ -177,19 +179,21 @@ both are easy to get wrong:
 
 - **It is not a night-time artifact.** The production threshold already removes
   night by itself; restricting MAPE further to sunlit hours changes little.
-- **It is not confined to dawn and dusk.** Low production occurs throughout the
-  day whenever cloud cover is heavy. Because there are far more midday hours than
-  twilight hours, overcast middays contribute more to the inflation in total than
-  the sunrise and sunset ramps do, even though each twilight hour is worse on
-  average.
+- **The primary cause is the upwards and downwards hours (06–09, 15–17).**
+  Production is small while it rises in the morning and falls in the afternoon,
+  so these hours carry the largest share of the percentage error.
+- **The secondary cause is cloudy by-day hours (10–14).** Within the
+  high-production plateau, overcast hours have low production and therefore a
+  much higher percentage error than clear hours.
 
-So the inflation comes from the arithmetic, not from a model failure, and the
-hours causing it are daylight hours that no daylight mask can remove.
+So the inflation comes from the arithmetic of small denominators, not from a
+model failure, and the hours causing it are daylight hours that no daylight mask
+can remove.
 
 ### The response
 
-MAPE is kept, because published work reports it, but only over the ramp and
-midday periods and reported for each separately. The split separates the
+MAPE is kept, because published work reports it, but only over the
+upwards/downwards and by-day periods and reported for each separately. The split separates the
 low-production hours, where the percentage is inflated, from the high-production
 plateau, where it means what it appears to mean.
 
@@ -261,6 +265,13 @@ matters when interpreting any trend in absolute production.
   across them, so a favourable initialisation cannot flatter a result. Seed
   spread is reported alongside.
 - Scalers are fitted on the training split only.
+- For the test, recurrent models are retrained on train+validation for the
+  epoch count early stopping chose during tuning. Nothing checks that
+  retraining, so the learning rate decays by a fixed factor per epoch in every
+  training run. Without it, the 10-minute GRU seeds ended their retraining with
+  different output scales, up to about ±3 kWh at high production. The schedule
+  depends only on the epoch number, so a retraining follows exactly the path
+  tuning took.
 - Autoregressive fits that do not converge are rejected rather than silently
   accepted.
 - The selection rule does not take the raw minimum, which is sensitive to

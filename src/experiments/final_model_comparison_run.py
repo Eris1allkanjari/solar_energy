@@ -7,9 +7,9 @@ from src.configs.evaluation import (
     AR_REFIT_INTERVAL,
     DAY_PERIOD_HOURS,
     EXOG_LAG_STEPS,
-    MIDDAY_PERIOD_HOURS,
+    BY_DAY_PERIOD_HOURS,
     PERIOD_DEFINITION,
-    RAMP_PERIOD_HOURS,
+    UPWARDS_DOWNWARDS_PERIOD_HOURS,
     FINAL_COMPARISON_PROTOCOL,
     MIN_SEASONAL_WINDOW,
     MAPE_PRODUCTION_THRESHOLD,
@@ -49,7 +49,8 @@ from src.training.evaluation import (
     clock_hour_mask,
     clock_period_mae,
     clock_period_mape,
-    evaluate
+    evaluate,
+    period_mapes
 )
 from src.utils.capacity import training_production_range
 
@@ -95,6 +96,7 @@ NEURAL_PROTOCOL_COLUMNS = {
     "loss",
     "weight_decay",
     "gradient_clip",
+    "lr_decay",
     "shuffle_training",
     "seeds",
     "seed_count",
@@ -140,6 +142,97 @@ def parse_args():
     return parser.parse_args()
 
 
+# The MAPE periods were renamed without any change to how they are computed, so
+# results saved under the old names are read back under the new ones instead of
+# forcing every model to be refitted.
+RENAMED_COLUMNS = {
+    "ramp_mape": "upwards_downwards_mape",
+    "ramp_mape_samples": "upwards_downwards_mape_samples",
+    "midday_mape": "by_day_mape",
+    "midday_mape_samples": "by_day_mape_samples"
+}
+
+
+HIGH_QUALITY_PERIOD_MAPE_COLUMNS = [
+    "high_quality_upwards_downwards_mape",
+    "high_quality_by_day_mape"
+]
+
+
+def high_quality_period_mapes_from_predictions(model_name):
+    """Recompute the high-quality period MAPEs from a saved prediction file.
+
+    Results saved before these columns existed still have their predictions on
+    disk, so the columns can be filled in without refitting. Neural models are
+    scored per seed and averaged, exactly as a fresh run would, which needs the
+    per-seed columns; a file saved before those existed cannot be used.
+    """
+    path = RESULTS_DIR / f"{model_name}_final_test_predictions.csv"
+    predictions_df = pd.read_csv(path, parse_dates=["time"])
+    seed_columns = [
+        column
+        for column in predictions_df.columns
+        if column.startswith("y_pred_seed_")
+    ]
+
+    if model_name in NEURAL_MODELS and not seed_columns:
+        raise RuntimeError(
+            f"{path} has no per-seed predictions, so {model_name} cannot be "
+            "rescored the way a fresh run would score it. Rerun the final "
+            f"comparison for {model_name}."
+        )
+
+    prediction_columns = seed_columns or ["y_pred"]
+
+    return period_mapes(
+        predictions_df["time"],
+        predictions_df["y_true"],
+        [predictions_df[column] for column in prediction_columns],
+        mask=(
+            predictions_df["pv_observation_fraction"] >= PV_QUALITY_THRESHOLD
+        ),
+        prefix="high_quality_"
+    )
+
+
+def read_comparison(comparison_path):
+    comparison_df = pd.read_csv(comparison_path).rename(
+        columns=RENAMED_COLUMNS
+    )
+
+    if "period_definition" in comparison_df.columns:
+        comparison_df["period_definition"] = PERIOD_DEFINITION
+
+    for column in HIGH_QUALITY_PERIOD_MAPE_COLUMNS:
+        if column not in comparison_df.columns:
+            comparison_df[column] = np.nan
+
+    missing = comparison_df[HIGH_QUALITY_PERIOD_MAPE_COLUMNS].isna().any(axis=1)
+
+    for row in comparison_df.index[missing]:
+        values = high_quality_period_mapes_from_predictions(
+            comparison_df.at[row, "model"]
+        )
+
+        for column, value in values.items():
+            comparison_df.at[row, column] = value
+
+    # Whole-period percentage error is no longer recorded anywhere, so it is
+    # dropped from saved results as well when the tables are rewritten.
+    return comparison_df.drop(
+        columns=[
+            "mape",
+            "mape_std",
+            "ensemble_mape",
+            "high_quality_mape",
+            "high_quality_mape_std",
+            "percentage_metric_samples",
+            "percentage_metric_coverage"
+        ],
+        errors="ignore"
+    )
+
+
 def load_existing_summaries(
     models_to_replace,
     test_start,
@@ -151,9 +244,7 @@ def load_existing_summaries(
     if not comparison_path.exists():
         return []
 
-    comparison_df = pd.read_csv(
-        comparison_path
-    )
+    comparison_df = read_comparison(comparison_path)
 
     required_columns = {"model", "selection_protocol"}
     missing_columns = required_columns.difference(
@@ -176,8 +267,8 @@ def load_existing_summaries(
         "nmae",
         "day_nmae",
         "night_nmae",
-        "ramp_mape",
-        "midday_mape"
+        "upwards_downwards_mape",
+        "by_day_mape"
     }
 
     if resume_columns.difference(comparison_df.columns):
@@ -205,6 +296,13 @@ def load_existing_summaries(
         & comparison_df["training_data"].isin(
             ["train_validation", "not_applicable"]
         )
+        # Neural training can change without the final protocol changing, as
+        # with the learning-rate decay, so a kept neural row must also have been
+        # tuned under the current neural protocol.
+        & (
+            ~comparison_df["model"].isin(NEURAL_MODELS)
+            | comparison_df["tuning_protocol"].eq(NEURAL_SELECTION_PROTOCOL)
+        )
     )
     incompatible_preserved_models = set(
         comparison_df.loc[
@@ -217,7 +315,7 @@ def load_existing_summaries(
     if incompatible_preserved_models:
         raise RuntimeError(
             "existing final results use an incompatible protocol for: "
-            f"{sorted(incompatible_preserved_models)}. Rerun all models."
+            f"{sorted(incompatible_preserved_models)}. Rerun those models."
         )
 
     comparison_df = comparison_df[
@@ -438,9 +536,6 @@ def result_summary(
     minimum_kwh
 ):
     y_test = np.asarray(final_result["y_test"])
-    percentage_metric_samples = int(
-        (y_test > MAPE_PRODUCTION_THRESHOLD).sum()
-    )
     primary_prediction = np.asarray(final_result["y_pred"])
     observation_fraction = np.asarray(
         final_result["pv_observation_fraction"]
@@ -490,31 +585,31 @@ def result_summary(
             )
         )
 
-    # Percentage error is reported over the ramp and the midday plateau
-    # separately, and nowhere else. Production during the ramp is small enough
-    # that dividing by it inflates the percentage regardless of how accurate the
-    # forecast was in kWh, so mixing the two periods hides which is which; over
-    # night or over the whole period the denominator is near zero too often for
-    # the mean to carry meaning at all.
-    ramp_mape = seed_mean_metric(
+    # Percentage error is reported over the upwards/downwards hours and the
+    # by-day plateau separately, and nowhere else. Production while it rises and
+    # falls is small enough that dividing by it inflates the percentage
+    # regardless of how accurate the forecast was in kWh, so mixing the two
+    # periods hides which is which; over night or over the whole period the
+    # denominator is near zero too often for the mean to carry meaning at all.
+    upwards_downwards_mape = seed_mean_metric(
         lambda index, true, pred: clock_period_mape(
-            index, true, pred, RAMP_PERIOD_HOURS
+            index, true, pred, UPWARDS_DOWNWARDS_PERIOD_HOURS
         )
     )
-    midday_mape = seed_mean_metric(
+    by_day_mape = seed_mean_metric(
         lambda index, true, pred: clock_period_mape(
-            index, true, pred, MIDDAY_PERIOD_HOURS
+            index, true, pred, BY_DAY_PERIOD_HOURS
         )
     )
-    ramp_mape_samples = int(
+    upwards_downwards_mape_samples = int(
         (
-            clock_hour_mask(test_index, RAMP_PERIOD_HOURS)
+            clock_hour_mask(test_index, UPWARDS_DOWNWARDS_PERIOD_HOURS)
             & (y_test > MAPE_PRODUCTION_THRESHOLD)
         ).sum()
     )
-    midday_mape_samples = int(
+    by_day_mape_samples = int(
         (
-            clock_hour_mask(test_index, MIDDAY_PERIOD_HOURS)
+            clock_hour_mask(test_index, BY_DAY_PERIOD_HOURS)
             & (y_test > MAPE_PRODUCTION_THRESHOLD)
         ).sum()
     )
@@ -571,6 +666,20 @@ def result_summary(
         )
         high_quality_metric_std = np.full(3, np.nan)
 
+    # The sensitivity analysis follows the same reporting rule as the main
+    # table: percentage error only over the upwards/downwards and by-day hours.
+    high_quality_period_mapes = period_mapes(
+        test_index,
+        y_test,
+        (
+            seed_predictions
+            if seed_predictions is not None
+            else [primary_prediction]
+        ),
+        mask=high_quality_mask,
+        prefix="high_quality_"
+    )
+
     return {
         "model": final_result["model"],
         "model_family": model_family,
@@ -618,6 +727,7 @@ def result_summary(
         "loss": final_result.get("loss"),
         "weight_decay": final_result.get("weight_decay"),
         "gradient_clip": final_result.get("gradient_clip"),
+        "lr_decay": final_result.get("lr_decay"),
         "shuffle_training": final_result.get("shuffle_training"),
         "seeds": final_result.get("seeds"),
         "seed_count": final_result.get("seed_count"),
@@ -649,10 +759,6 @@ def result_summary(
         "tuning_fit_converged": best_setting.get("fit_converged"),
         "exog_lag_steps": final_result.get("exog_lag_steps"),
         "mape_production_threshold": MAPE_PRODUCTION_THRESHOLD,
-        "percentage_metric_samples": percentage_metric_samples,
-        "percentage_metric_coverage": (
-            percentage_metric_samples / len(y_test)
-        ),
         "pv_quality_threshold": PV_QUALITY_THRESHOLD,
         "high_quality_samples": int(high_quality_mask.sum()),
         "high_quality_coverage": float(high_quality_mask.mean()),
@@ -663,18 +769,17 @@ def result_summary(
         "high_quality_mae_std": high_quality_metric_std[0],
         "high_quality_rmse": high_quality_metrics[1],
         "high_quality_rmse_std": high_quality_metric_std[1],
-        "high_quality_mape": high_quality_metrics[2],
-        "high_quality_mape_std": high_quality_metric_std[2],
+        **high_quality_period_mapes,
         "period_definition": PERIOD_DEFINITION,
         "day_hours": int(day_hours_mask.sum()),
         "night_hours": int((~day_hours_mask).sum()),
         "day_mae": day_mae,
         "day_mae_std": day_mae_std,
         "night_mae": night_mae,
-        "ramp_mape_samples": ramp_mape_samples,
-        "ramp_mape": ramp_mape,
-        "midday_mape_samples": midday_mape_samples,
-        "midday_mape": midday_mape,
+        "upwards_downwards_mape_samples": upwards_downwards_mape_samples,
+        "upwards_downwards_mape": upwards_downwards_mape,
+        "by_day_mape_samples": by_day_mape_samples,
+        "by_day_mape": by_day_mape,
         # NMAE, the min-max scaled MAE. The offset cancels when the two scaled
         # series are subtracted, so this is MAE / (max - min); with a training
         # minimum of zero it coincides with max scaling, MAE / max.
@@ -720,11 +825,8 @@ def result_summary(
         "mae_std": final_result.get("mae_std"),
         "rmse": final_result["rmse"],
         "rmse_std": final_result.get("rmse_std"),
-        "mape": final_result["mape"],
-        "mape_std": final_result.get("mape_std"),
         "ensemble_mae": final_result.get("ensemble_mae"),
-        "ensemble_rmse": final_result.get("ensemble_rmse"),
-        "ensemble_mape": final_result.get("ensemble_mape")
+        "ensemble_rmse": final_result.get("ensemble_rmse")
     }
 
 
@@ -739,6 +841,9 @@ def save_model_result(final_result, summary):
         index=False
     )
 
+    # For neural models y_pred is the average of the seed predictions, while the
+    # reported metrics are averages of per-seed metrics. The two can differ a
+    # lot when one seed is poor, so each seed's own prediction is kept too.
     prediction_df = pd.DataFrame(
         {
             "time": pd.DatetimeIndex(final_result["test_index"]),
@@ -746,6 +851,14 @@ def save_model_result(final_result, summary):
             "y_pred": np.asarray(final_result["y_pred"])
         }
     )
+    seed_predictions = final_result.get("seed_predictions")
+
+    if seed_predictions is not None:
+        seeds = str(final_result["seeds"]).split(",")
+
+        for seed, seed_prediction in zip(seeds, seed_predictions):
+            prediction_df[f"y_pred_seed_{seed}"] = np.asarray(seed_prediction)
+
     prediction_df["pv_observation_fraction"] = np.asarray(
         final_result["pv_observation_fraction"]
     )
@@ -825,26 +938,21 @@ def save_comparison(summaries):
         RESULTS_DIR / "final_model_comparison.csv",
         index=False
     )
-    # The reported metric set. Percentage error appears only for the ramp and
-    # the midday plateau, never for night or the whole period, because a
-    # denominator near zero makes the mean meaningless there. Absolute error is
-    # scaled by the training production range so a kWh figure is interpretable
-    # without knowing the size of the installation, and is split day against
-    # night because pooling lets the trivially-zero dark hours halve it.
+    # The reported metric set, and nothing else. Percentage error appears only
+    # for the upwards/downwards hours (06-09 and 15-17) and the by-day hours
+    # (10-14), never for night or the whole period, because a denominator near
+    # zero makes the mean meaningless there. Absolute error appears only scaled:
+    # over the whole test period, and split into day (06-17) and night (18-05)
+    # because pooling lets the trivially-zero dark hours halve it. The divisor
+    # and the period definitions stay in final_model_comparison.csv.
     comparison_df[
         [
             "model",
-            "ramp_mape",
-            "midday_mape",
+            "upwards_downwards_mape",
+            "by_day_mape",
             "nmae",
             "day_nmae",
-            "night_nmae",
-            "mae",
-            "day_mae",
-            "night_mae",
-            "rmse",
-            "capacity_kwh",
-            "period_definition"
+            "night_nmae"
         ]
     ].sort_values("nmae").to_csv(
         RESULTS_DIR / "final_model_reported_metrics.csv",
@@ -855,7 +963,8 @@ def save_comparison(summaries):
             "model",
             "high_quality_mae",
             "high_quality_rmse",
-            "high_quality_mape"
+            "high_quality_upwards_downwards_mape",
+            "high_quality_by_day_mape"
         ]
     ].sort_values("high_quality_mae").to_csv(
         RESULTS_DIR / "final_model_high_quality_metrics.csv",
@@ -889,7 +998,7 @@ def run_baseline(model_name, df_proc, test_start_index, test_steps):
     ]
     y_pred = target.shift(lag).loc[y_test.index].to_numpy()
     y_pred = np.clip(y_pred, 0, None)
-    mae, rmse, mape = evaluate(y_test, y_pred)
+    mae, rmse, _ = evaluate(y_test, y_pred)
 
     return {
         "model": model_name,
@@ -901,7 +1010,6 @@ def run_baseline(model_name, df_proc, test_start_index, test_steps):
         "state_context_steps": lag,
         "mae": mae,
         "rmse": rmse,
-        "mape": mape,
         "test_index": y_test.index,
         "y_test": y_test.to_numpy(),
         "y_pred": y_pred
@@ -938,7 +1046,7 @@ def rewrite_tables():
         )
 
     save_comparison(
-        pd.read_csv(comparison_path).to_dict(orient="records")
+        read_comparison(comparison_path).to_dict(orient="records")
     )
     print(f"rewrote summary tables from {comparison_path}")
 
@@ -994,17 +1102,6 @@ def main():
         test_end=test_end,
         test_steps=final_test_steps
     )
-    percentage_metric_samples = int(
-        (test_df["pv_total_kWh"] > MAPE_PRODUCTION_THRESHOLD).sum()
-    )
-    percentage_metric_coverage = (
-        percentage_metric_samples / len(test_df)
-    )
-
-    for summary in summaries:
-        summary["percentage_metric_samples"] = percentage_metric_samples
-        summary["percentage_metric_coverage"] = percentage_metric_coverage
-
     for model_name in NEURAL_MODELS:
         if model_name not in selected_models:
             continue
