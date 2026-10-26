@@ -2,7 +2,11 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-from src.configs.evaluation import MAPE_PRODUCTION_THRESHOLD
+from src.configs.evaluation import (
+    BY_DAY_PERIOD_HOURS,
+    MAPE_PRODUCTION_THRESHOLD,
+    UPWARDS_DOWNWARDS_PERIOD_HOURS
+)
 
 
 def evaluate(
@@ -115,9 +119,9 @@ def clock_period_mape(
 
     Delegates to evaluate() so the production threshold behaves exactly as it
     does for every other percentage figure in the project. Percentage error is
-    only reported over the ramp and midday periods; across a whole day or a
-    whole year the denominator spends too long near zero for the mean to mean
-    anything.
+    only reported over the upwards/downwards and by-day periods; across a whole
+    day or a whole year the denominator spends too long near zero for the mean
+    to mean anything.
     """
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
@@ -133,3 +137,40 @@ def clock_period_mape(
     )
 
     return mape
+
+
+def period_mapes(index, y_true, predictions, mask=None, prefix=""):
+    """The two reported percentage errors, averaged over prediction sets.
+
+    `predictions` is a list of prediction arrays, one per seed for neural models
+    and a single one otherwise, so the result is aggregated the same way as
+    every other metric: computed per seed, then averaged. An optional `mask`
+    restricts the scoring to a subset of intervals first, such as those with
+    adequate PV coverage.
+    """
+    index = pd.DatetimeIndex(index)
+    y_true = np.asarray(y_true)
+    prediction_sets = [np.asarray(prediction) for prediction in predictions]
+
+    if mask is not None:
+        mask = np.asarray(mask, dtype=bool)
+        index = index[mask]
+        y_true = y_true[mask]
+        prediction_sets = [prediction[mask] for prediction in prediction_sets]
+
+    periods = {
+        "upwards_downwards_mape": UPWARDS_DOWNWARDS_PERIOD_HOURS,
+        "by_day_mape": BY_DAY_PERIOD_HOURS
+    }
+
+    return {
+        f"{prefix}{name}": float(
+            np.mean(
+                [
+                    clock_period_mape(index, y_true, prediction, hours)
+                    for prediction in prediction_sets
+                ]
+            )
+        )
+        for name, hours in periods.items()
+    }

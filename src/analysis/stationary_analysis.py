@@ -1,7 +1,7 @@
 import pandas as pd
 from statsmodels.tsa.stattools import adfuller
 
-from src.configs.evaluation import TRAIN_RATIO
+from src.configs.evaluation import split_positions
 from src.data.loader import load_dataset
 from src.data.preprocessing import clean_data
 from src.experiments.constants import ANALYSIS_RESULTS_DIR, DATA_FILE_PATH
@@ -57,7 +57,7 @@ def main():
        DATA_FILE_PATH
     )
 
-    train_end = int(len(df) * TRAIN_RATIO)
+    train_end, _ = split_positions(len(df))
     training_df = clean_data(
         df.iloc[:train_end][["pv_total_kWh"]]
     )

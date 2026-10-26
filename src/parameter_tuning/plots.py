@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import STEPS_PER_HOUR
+
 
 MODEL_STYLES = {
     "lstm": ("#1f77b4", "o"),
@@ -14,6 +16,9 @@ MODEL_STYLES = {
     "sarimax": ("#8c564b", "P")
 }
 
+
+# Tuning records window lengths in rows of the active dataset.
+STEP_LABEL = "hours" if STEPS_PER_HOUR == 1 else "10-minute steps"
 
 KWH_LABEL = "pv production (kWh)"
 SCALED_LABEL = "pv production (% of training peak capacity)"
@@ -67,7 +72,7 @@ def plot_mae_by_l(best_per_l, output_path=None):
         marker="o"
     )
 
-    plt.xlabel("input window length L")
+    plt.xlabel(f"input window length L ({STEP_LABEL})")
     plt.ylabel(metric)
     plt.title(f"{metric} by input window length")
     plt.grid(True)

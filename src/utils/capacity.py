@@ -1,6 +1,6 @@
 """Reference capacity for expressing forecast errors as a percentage of peak."""
 
-from src.configs.evaluation import TRAIN_RATIO
+from src.configs.evaluation import split_positions
 
 
 def training_peak_capacity(df, target_column="pv_total_kWh"):
@@ -32,7 +32,7 @@ def training_production_range(df, target_column="pv_total_kWh"):
     keeps the general form in the code and lets the reported columns show why
     the two scalings coincide rather than leaving it as an assumption.
     """
-    train_end = int(len(df) * TRAIN_RATIO)
+    train_end, _ = split_positions(len(df))
     training_target = df[target_column].iloc[:train_end]
 
     return float(training_target.min()), float(training_target.max())

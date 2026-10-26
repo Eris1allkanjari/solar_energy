@@ -21,6 +21,10 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import (
+    add_dataset_argument,
+    hours_to_steps
+)
 from src.configs.evaluation import (
     MAPE_PRODUCTION_THRESHOLD,
     PV_QUALITY_THRESHOLD,
@@ -49,7 +53,7 @@ from src.parameter_tuning.tuner import (
     params_from_best_setting,
     parse_seeds
 )
-from src.training.evaluation import evaluate
+from src.training.evaluation import evaluate, period_mapes
 
 
 RESULTS_DIR = PERIODICITY_ABLATION_RESULTS_DIR
@@ -91,6 +95,7 @@ def parse_args():
         default=72,
         help="Width of the qualitative comparison window in hours."
     )
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -231,12 +236,19 @@ def summarize(variant, run, split, quality_df):
         "mae_std": metric_std[0],
         "rmse": metrics[1],
         "rmse_std": metric_std[1],
-        "mape": metrics[2],
+        # Percentage error only over the upwards/downwards and by-day hours.
+        **period_mapes(run["index"], y_true, seed_predictions),
         "ensemble_mae": ensemble_metrics[0],
         "ensemble_rmse": ensemble_metrics[1],
         "high_quality_mae": quality_metrics[0],
         "high_quality_rmse": quality_metrics[1],
-        "high_quality_mape": quality_metrics[2],
+        **period_mapes(
+            run["index"],
+            y_true,
+            seed_predictions,
+            mask=quality_mask,
+            prefix="high_quality_"
+        ),
         "block_mae_mean": block_metrics["val_block_mae_mean"],
         "block_mae_std": block_metrics["val_block_mae_std"]
     }
@@ -358,7 +370,7 @@ def main():
         predictions_by_model=predictions,
         output_path=str(RESULTS_DIR / f"{prefix}_forecast_zoom.png"),
         start=0,
-        hours=args.zoom_hours
+        hours=hours_to_steps(args.zoom_hours)
     )
 
     columns = [

@@ -17,6 +17,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import add_dataset_argument
 from src.configs.evaluation import (
     DAY_PERIOD_ELEVATION_DEGREES,
     MAPE_PRODUCTION_THRESHOLD,
@@ -25,11 +26,11 @@ from src.configs.evaluation import (
     SITE_LONGITUDE
 )
 from src.data.loader import load_dataset
+from src.experiments.final_model_comparison_run import load_pv_quality
 from src.experiments.constants import (
     ANALYSIS_RESULTS_DIR,
     DATA_FILE_PATH,
-    FINAL_COMPARISON_RESULTS_DIR,
-    PV_QUALITY_HOURLY_PATH
+    FINAL_COMPARISON_RESULTS_DIR
 )
 from src.utils.solar import solar_elevation
 
@@ -73,6 +74,7 @@ def parse_args():
         )
     )
     parser.add_argument("--model", default="gru")
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -94,13 +96,8 @@ def load_hours(model_name):
     weather = load_dataset(DATA_FILE_PATH)
     frame = frame.join(weather[["cloud_cover_okta"]], how="left")
 
-    quality = pd.read_csv(PV_QUALITY_HOURLY_PATH)
-    quality["time"] = pd.to_datetime(
-        quality["time"],
-        utc=True
-    ).dt.tz_localize(None)
     frame = frame.join(
-        quality.set_index("time")[["observation_fraction"]],
+        load_pv_quality()[["observation_fraction"]],
         how="left"
     )
 

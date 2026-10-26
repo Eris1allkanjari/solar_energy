@@ -3,6 +3,10 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import (
+    STEPS_PER_HOUR,
+    add_dataset_argument
+)
 from src.data.loader import load_dataset
 from src.experiments.constants import (
     AR_TUNING_RESULTS_DIR,
@@ -65,6 +69,7 @@ def parse_args():
             "Defaults to the most variable window in the test period."
         )
     )
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -189,6 +194,17 @@ def main():
         for model_name, model_df in best_per_l.groupby("model", sort=False)
     }
 
+    # Tuning records window lengths in steps of the dataset. The figures show
+    # them in hours, so figures from the hourly and 10-minute datasets read on
+    # the same axis.
+    windows_in_hours = best_per_l.assign(
+        seq_len=best_per_l["seq_len"] / STEPS_PER_HOUR
+    )
+    selected_hours = {
+        model_name: length / STEPS_PER_HOUR
+        for model_name, length in selected_l.items()
+    }
+
     neural_family = {
         "title": "recurrent models",
         "xlabel": "input sequence length L (hours, log scale)",
@@ -229,11 +245,11 @@ def main():
                 f"{suffix}.png"
             )
             plot_mae_by_l_all_models(
-                results_df=best_per_l,
+                results_df=windows_in_hours,
                 families=families,
                 output_path=str(window_path),
                 metric=SELECTION_METRIC,
-                selected_l=selected_l,
+                selected_l=selected_hours,
                 capacity_kwh=capacity
             )
             print(f"saved {window_path}")
@@ -249,18 +265,19 @@ def main():
         note = "" if np.isclose(row[SELECTION_METRIC], minimum) else \
             f"  (raw minimum is {minimum:.4f}; within tolerance, lower RMSE won)"
         print(
-            f"  {model_name:10s} L={length:<5d} "
+            f"  {model_name:10s} L={length / STEPS_PER_HOUR:<6g}h "
             f"{SELECTION_METRIC}={row[SELECTION_METRIC]:.4f}{note}"
         )
 
     predictions = load_test_predictions()
     reference = next(iter(predictions.values()))
-    zoom_hours = int(round(args.zoom_days * 24))
-    start = resolve_zoom_start(reference, zoom_hours, args.zoom_start)
-    end = min(start + zoom_hours, len(reference))
+    zoom_steps = int(round(args.zoom_days * 24 * STEPS_PER_HOUR))
+    start = resolve_zoom_start(reference, zoom_steps, args.zoom_start)
+    end = min(start + zoom_steps, len(reference))
     print(
         f"\nzoom window: {reference['time'].iloc[start]} to "
-        f"{reference['time'].iloc[end - 1]} ({end - start} hours)"
+        f"{reference['time'].iloc[end - 1]} "
+        f"({(end - start) / STEPS_PER_HOUR:g} hours)"
     )
 
     # Full test period: the whole forecast against the whole truth, so seasonal
@@ -295,7 +312,7 @@ def main():
                 output_path=str(output_path),
                 title=f"{model_name} on the test set",
                 start=start,
-                hours=zoom_hours,
+                hours=zoom_steps,
                 capacity_kwh=capacity
             )
             print(f"saved {output_path}")
@@ -309,7 +326,7 @@ def main():
             predictions_by_model=predictions,
             output_path=str(combined_path),
             start=start,
-            hours=zoom_hours,
+            hours=zoom_steps,
             capacity_kwh=capacity
         )
         print(f"saved {combined_path}")

@@ -27,11 +27,41 @@ def initialize_diffuse_if_available(model):
 
 
 def fit_statistical_model(model, config):
-    return model.fit(
+    """Fit by maximum likelihood without storing the filter output per step.
+
+    By default the final filtering pass keeps a state covariance matrix for
+    every observation. A seasonal model at 10-minute resolution has around 290
+    states, so a 60-day window would need several arrays of 5.4 GiB each.
+    Nothing here uses those arrays: the rolling forecast only needs the
+    parameters, the information criteria and the final predicted state, which
+    are identical either way. Standard errors are never used, so they are not
+    computed.
+    """
+    fitted = model.fit(
         method=config.METHOD,
         maxiter=config.MAX_ITER,
-        disp=False
+        disp=False,
+        low_memory=True,
+        cov_type="none"
     )
+
+    return keep_final_predicted_state(fitted)
+
+
+def keep_final_predicted_state(fitted):
+    """Expose the final predicted state that extend() starts from.
+
+    Under low memory the filter keeps only its last few predicted states, and
+    the results object hides even those. extend() reads just the last one, so
+    handing it the retained columns makes state updates work unchanged.
+    """
+    results = getattr(fitted, "_results", fitted)
+    filter_results = results.filter_results
+
+    results.predicted_state = filter_results.predicted_state
+    results.predicted_state_cov = filter_results.predicted_state_cov
+
+    return fitted
 
 
 def fallback_prediction(history):

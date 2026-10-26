@@ -21,6 +21,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import add_dataset_argument
 from src.configs.evaluation import (
     MAPE_PRODUCTION_THRESHOLD,
     RNN_SEEDS,
@@ -65,6 +66,7 @@ def parse_args():
     parser.add_argument("--seeds", nargs="+", type=int, default=list(RNN_SEEDS))
     parser.add_argument("--variants", nargs="+", default=list(LOSS_VARIANTS),
                         choices=list(LOSS_VARIANTS))
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -159,7 +161,6 @@ def run_variant(model_name, df_proc, best_setting, variant, seeds):
         "val_block_mae_std": result["val_block_mae_std"],
         "val_mae": result["val_mae"],
         "val_rmse": result["val_rmse"],
-        "val_mape": result["val_mape"],
         "val_seed_mae_std": result["val_seed_mae_std"],
         **peak_diagnostics(y_true, y_pred)
     }

@@ -1,8 +1,13 @@
-from pathlib import Path
+from src.configs.dataset_selection import (
+    ACTIVE_DATASET,
+    EXPERIMENTS_DIR,
+    PROJECT_ROOT
+)
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_FILE_PATH = PROJECT_ROOT / "utrecht" / "processed_data" / "utrecht_pv_data.csv"
+# The data file and every results folder follow the active dataset, so runs on
+# different datasets never overwrite each other. See dataset_selection.
+DATA_FILE_PATH = ACTIVE_DATASET.path
 RAW_PV_FILE_PATH = (
     PROJECT_ROOT
     / "utrecht"
@@ -10,9 +15,14 @@ RAW_PV_FILE_PATH = (
     / "filtered_pv_power_measurements_ac.csv"
 )
 
-RESULTS_ROOT = Path(__file__).resolve().parent / "results"
+RESULTS_ROOT = ACTIVE_DATASET.results_root
 ANALYSIS_RESULTS_DIR = RESULTS_ROOT / "analysis"
-PV_QUALITY_HOURLY_PATH = ANALYSIS_RESULTS_DIR / "pv_data_quality_hourly.csv"
+
+# The PV quality audit describes the PV record alone, which is the same for
+# every dataset, so it stays in one place instead of following the active one.
+PV_QUALITY_RESULTS_DIR = EXPERIMENTS_DIR / "results" / "analysis"
+PV_QUALITY_HOURLY_PATH = PV_QUALITY_RESULTS_DIR / "pv_data_quality_hourly.csv"
+
 PARAMETER_TUNING_RESULTS_DIR = RESULTS_ROOT / "parameter_tuning"
 NEURAL_TUNING_RESULTS_DIR = PARAMETER_TUNING_RESULTS_DIR / "neural"
 AR_TUNING_RESULTS_DIR = PARAMETER_TUNING_RESULTS_DIR / "autoregressive"

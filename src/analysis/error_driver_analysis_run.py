@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from src.configs.dataset_selection import add_dataset_argument
 from src.configs.evaluation import (
     DAY_PERIOD_ELEVATION_DEGREES,
     MAPE_PRODUCTION_THRESHOLD,
@@ -24,11 +25,11 @@ from src.configs.evaluation import (
     SITE_LONGITUDE
 )
 from src.data.loader import load_dataset
+from src.experiments.final_model_comparison_run import load_pv_quality
 from src.experiments.constants import (
     ANALYSIS_RESULTS_DIR,
     DATA_FILE_PATH,
-    FINAL_COMPARISON_RESULTS_DIR,
-    PV_QUALITY_HOURLY_PATH
+    FINAL_COMPARISON_RESULTS_DIR
 )
 from src.utils.solar import solar_elevation
 
@@ -61,16 +62,15 @@ def parse_args():
         default=DAY_PERIOD_ELEVATION_DEGREES,
         help="Solar elevation defining the day period."
     )
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
 def load_quality():
-    quality = pd.read_csv(PV_QUALITY_HOURLY_PATH)
-    quality["time"] = pd.to_datetime(
-        quality["time"],
-        utc=True
-    ).dt.tz_localize(None)
-    return quality.set_index("time")
+    # Reuse the experiments' loader so the coverage matches the active
+    # dataset's resolution. Only the validated hourly dataset has the audit's
+    # extra columns; the others carry observation_fraction alone.
+    return load_pv_quality()
 
 
 def build_frame(model_name, elevation_threshold):
@@ -89,10 +89,9 @@ def build_frame(model_name, elevation_threshold):
     weather = load_dataset(DATA_FILE_PATH)
     available = [c for c in WEATHER_DRIVERS if c in weather.columns]
     frame = frame.join(weather[available], how="left")
-    frame = frame.join(
-        load_quality()[QUALITY_DRIVERS],
-        how="left"
-    )
+    quality = load_quality()
+    quality_available = [c for c in QUALITY_DRIVERS if c in quality.columns]
+    frame = frame.join(quality[quality_available], how="left")
 
     index = pd.DatetimeIndex(frame.index)
     frame["elevation"] = solar_elevation(
@@ -111,7 +110,7 @@ def build_frame(model_name, elevation_threshold):
         np.nan
     )
 
-    return day, available
+    return day, available, quality_available
 
 
 def partial_spearman(x, y, control):
@@ -221,8 +220,11 @@ def stratified_means(day, driver, target, bins=4):
 def main():
     args = parse_args()
     ANALYSIS_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    day, weather_available = build_frame(args.model, args.elevation)
-    drivers = weather_available + QUALITY_DRIVERS
+    day, weather_available, quality_available = build_frame(
+        args.model,
+        args.elevation
+    )
+    drivers = weather_available + quality_available
 
     lines = []
 
@@ -242,7 +244,12 @@ def main():
     emit()
     # observation_fraction and mean_reporting_systems are the same measurement
     # in different units, so they cannot be told apart as separate causes.
-    coverage = day[["observation_fraction", "mean_reporting_systems"]].dropna()
+    redundant_pair = ["observation_fraction", "mean_reporting_systems"]
+    coverage = (
+        day[redundant_pair].dropna()
+        if set(redundant_pair) <= set(day.columns)
+        else pd.DataFrame()
+    )
 
     if not coverage.empty:
         rho, _ = stats.spearmanr(
@@ -257,7 +264,7 @@ def main():
 
     emit("Spread of the quality variables over these hours:")
 
-    for driver in QUALITY_DRIVERS:
+    for driver in quality_available:
         series = day[driver].dropna()
 
         if series.empty:

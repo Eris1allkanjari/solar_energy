@@ -1,8 +1,8 @@
 import torch
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 
 
-def predict_model(model, X_test, batch_size=64):
+def predict_model(model, windows, batch_size=64):
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
@@ -10,15 +10,8 @@ def predict_model(model, X_test, batch_size=64):
 
     model = model.to(device)
 
-    X_tensor = torch.tensor(
-        X_test,
-        dtype=torch.float32
-    )
-
-    dataset = TensorDataset(X_tensor)
-
     loader = DataLoader(
-        dataset,
+        windows,
         batch_size=batch_size,
         shuffle=False,
         pin_memory=pin_memory
@@ -30,7 +23,7 @@ def predict_model(model, X_test, batch_size=64):
 
     with torch.no_grad():
 
-        for (X_batch,) in loader:
+        for X_batch, _ in loader:
 
             X_batch = X_batch.to(device, non_blocking=pin_memory)
 

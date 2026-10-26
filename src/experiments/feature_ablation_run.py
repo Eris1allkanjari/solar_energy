@@ -2,6 +2,7 @@ import argparse
 
 import pandas as pd
 
+from src.configs.dataset_selection import add_dataset_argument
 from src.configs.evaluation import AR_REFIT_INTERVAL, VALIDATION_STEPS
 from src.data.loader import load_dataset
 from src.data.preprocessing import add_time_features, clean_data
@@ -91,6 +92,7 @@ def parse_args():
         choices=MODEL_CHOICES,
         default=MODEL_CHOICES
     )
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 

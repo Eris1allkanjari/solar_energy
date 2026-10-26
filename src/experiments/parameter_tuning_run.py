@@ -2,6 +2,7 @@ import argparse
 
 import pandas as pd
 
+from src.configs.dataset_selection import add_dataset_argument
 from src.data.loader import load_dataset
 from src.data.preprocessing import add_time_features, clean_data, select_features
 from src.experiments.constants import DATA_FILE_PATH, NEURAL_TUNING_RESULTS_DIR
@@ -31,6 +32,7 @@ def parse_args():
         default=["lstm", "gru"],
         help="Attention is optional and excluded from the default run."
     )
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 

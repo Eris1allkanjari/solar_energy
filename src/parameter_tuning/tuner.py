@@ -5,11 +5,10 @@ import pandas as pd
 from src.configs.evaluation import (
     NEURAL_SELECTION_PROTOCOL,
     RNN_SEEDS,
-    TRAIN_RATIO,
-    VALIDATION_END_RATIO,
-    VALIDATION_STEPS
+    VALIDATION_STEPS,
+    split_positions
 )
-from src.data.sequences import create_sequences
+from src.data.sequences import WindowDataset
 from src.configs.config import ExperimentConfig
 from src.training.trainer import (
     set_random_seed,
@@ -39,8 +38,7 @@ def prepare_data_for_l(
 ):
     n_raw = len(df_proc)
 
-    train_end = int(n_raw * TRAIN_RATIO)
-    val_end = int(n_raw * VALIDATION_END_RATIO)
+    train_end, val_end = split_positions(n_raw)
 
     train_df = df_proc.iloc[:train_end]
     val_df = df_proc.iloc[train_end:val_end]
@@ -76,10 +74,10 @@ def prepare_data_for_l(
             val_df
         )
 
-    X_train, y_train = create_sequences(train_scaled, seq_len)
-    X_val, y_val = create_sequences(val_scaled, seq_len)
+    train_windows = WindowDataset(train_scaled, seq_len)
+    val_windows = WindowDataset(val_scaled, seq_len)
 
-    return X_train, y_train, X_val, y_val, scaler
+    return train_windows, val_windows, scaler
 
 
 def evaluate_on_validation(
@@ -97,20 +95,22 @@ def evaluate_on_validation(
         seq_len=seq_len
     )
 
-    X_train, y_train, X_val, y_val, scaler = prepare_data_for_l(
+    train_windows, val_windows, scaler = prepare_data_for_l(
         df_proc=df_proc,
         seq_len=seq_len,
         validation_steps=validation_steps
     )
 
+    n_features = train_windows.n_features
+    y_val = val_windows.targets
     y_val_rescaled = inverse_target(
         scaler,
         y_val,
-        X_train.shape[2]
+        n_features
     )
 
     n_raw = len(df_proc)
-    train_end = int(n_raw * TRAIN_RATIO)
+    train_end, _ = split_positions(n_raw)
 
     if validation_steps is None:
         validation_start_index = train_end + seq_len
@@ -137,30 +137,28 @@ def evaluate_on_validation(
 
         model = get_model(
             model_name=model_name,
-            input_shape=(seq_len, X_train.shape[2]),
+            input_shape=(seq_len, n_features),
             config=config
         )
 
         model = train_model(
             model=model,
-            X_train=X_train,
-            y_train=y_train,
-            X_val=X_val,
-            y_val=y_val,
+            train_windows=train_windows,
+            val_windows=val_windows,
             config=config,
             seed=seed
         )
 
         y_val_pred = predict_model(
             model=model,
-            X_test=X_val,
+            windows=val_windows,
             batch_size=config.BATCH_SIZE
         )
 
         y_val_pred_rescaled = inverse_target(
             scaler,
             y_val_pred.flatten(),
-            X_train.shape[2]
+            n_features
         )
         y_val_pred_rescaled = np.clip(
             y_val_pred_rescaled,
@@ -168,7 +166,10 @@ def evaluate_on_validation(
             None
         )
 
-        mae, rmse, mape = evaluate(
+        # MAPE over the whole period is not recorded: its denominator is too
+        # often near zero there. It is reported only for the final test, over
+        # the upwards/downwards and by-day hours.
+        mae, rmse, _ = evaluate(
             y_val_rescaled,
             y_val_pred_rescaled
         )
@@ -181,8 +182,7 @@ def evaluate_on_validation(
             {
                 **block_metrics,
                 "val_mae": mae,
-                "val_rmse": rmse,
-                "val_mape": mape
+                "val_rmse": rmse
             }
         )
         seed_predictions.append(y_val_pred_rescaled)
@@ -223,6 +223,7 @@ def evaluate_on_validation(
         "loss": config.LOSS,
         "weight_decay": config.WEIGHT_DECAY,
         "gradient_clip": config.GRADIENT_CLIP,
+        "lr_decay": config.LR_DECAY,
         "shuffle_training": True,
         "seeds": ",".join(str(seed) for seed in seeds),
         "seed_count": len(seeds),
@@ -246,8 +247,7 @@ def evaluate_on_validation(
         "val_seed_mae_values": metric_values_text("val_mae"),
         "val_seed_rmse_values": metric_values_text("val_rmse"),
         "val_mae": metric_mean("val_mae"),
-        "val_rmse": metric_mean("val_rmse"),
-        "val_mape": metric_mean("val_mape")
+        "val_rmse": metric_mean("val_rmse")
     }
 
     if return_predictions:
@@ -358,7 +358,8 @@ def params_from_best_setting(best_setting):
         "patience": int(best_setting["patience"]),
         "loss": best_setting.get("loss", "mae"),
         "weight_decay": float(best_setting.get("weight_decay", 1e-5)),
-        "gradient_clip": float(best_setting.get("gradient_clip", 1.0))
+        "gradient_clip": float(best_setting.get("gradient_clip", 1.0)),
+        "lr_decay": float(best_setting["lr_decay"])
     }
 
 
@@ -380,13 +381,13 @@ def final_test(
     )
 
     n_raw = len(df_proc)
-    val_end = int(n_raw * VALIDATION_END_RATIO)
+    _, val_end = split_positions(n_raw)
     train_validation_df = df_proc.iloc[:val_end]
     scaler = TargetFeatureScaler()
     train_validation_scaled = scaler.fit_transform(
         train_validation_df
     )
-    X_train, y_train = create_sequences(
+    train_windows = WindowDataset(
         train_validation_scaled,
         seq_len
     )
@@ -407,15 +408,16 @@ def final_test(
     test_context_scaled = scaler.transform(
         test_context
     )
-    X_test, y_test = create_sequences(
+    test_windows = WindowDataset(
         test_context_scaled,
         seq_len
     )
 
+    n_features = train_windows.n_features
     y_test_rescaled = inverse_target(
         scaler,
-        y_test,
-        X_train.shape[2]
+        test_windows.targets,
+        n_features
     )
 
     seeds = parse_seeds(
@@ -443,28 +445,26 @@ def final_test(
         set_random_seed(seed)
         model = get_model(
             model_name=model_name,
-            input_shape=(seq_len, X_train.shape[2]),
+            input_shape=(seq_len, n_features),
             config=config
         )
         model = train_model(
             model=model,
-            X_train=X_train,
-            y_train=y_train,
-            X_val=None,
-            y_val=None,
+            train_windows=train_windows,
+            val_windows=None,
             config=config,
             seed=seed,
             epochs=refit_epoch
         )
         y_pred = predict_model(
             model=model,
-            X_test=X_test,
+            windows=test_windows,
             batch_size=config.BATCH_SIZE
         )
         y_pred_rescaled = inverse_target(
             scaler,
             y_pred.flatten(),
-            X_train.shape[2]
+            n_features
         )
         y_pred_rescaled = np.clip(
             y_pred_rescaled,
@@ -488,15 +488,15 @@ def final_test(
         seed_predictions,
         axis=0
     )
-    ensemble_mae, ensemble_rmse, ensemble_mape = evaluate(
+    ensemble_mae, ensemble_rmse, _ = evaluate(
         y_test_rescaled,
         y_pred_rescaled
     )
-    mae, rmse, mape = np.mean(
+    mae, rmse, _ = np.mean(
         metric_values,
         axis=0
     )
-    mae_std, rmse_std, mape_std = np.std(
+    mae_std, rmse_std, _ = np.std(
         metric_values,
         axis=0,
         ddof=0
@@ -517,6 +517,7 @@ def final_test(
         "loss": config.LOSS,
         "weight_decay": config.WEIGHT_DECAY,
         "gradient_clip": config.GRADIENT_CLIP,
+        "lr_decay": config.LR_DECAY,
         "shuffle_training": True,
         "seeds": ",".join(str(seed) for seed in seeds),
         "seed_count": len(seeds),
@@ -539,11 +540,8 @@ def final_test(
         "mae_std": mae_std,
         "rmse": rmse,
         "rmse_std": rmse_std,
-        "mape": mape,
-        "mape_std": mape_std,
         "ensemble_mae": ensemble_mae,
         "ensemble_rmse": ensemble_rmse,
-        "ensemble_mape": ensemble_mape,
         "seed_predictions": np.asarray(seed_predictions),
         "test_index": test_df.index,
         "y_test": y_test_rescaled,

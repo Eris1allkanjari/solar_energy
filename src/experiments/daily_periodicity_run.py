@@ -3,10 +3,14 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from src.configs.dataset_selection import (
+    add_dataset_argument,
+    hours_to_steps
+)
 from src.configs.config import ExperimentConfig
 from src.configs.evaluation import (
-    TRAIN_RATIO,
-    VALIDATION_STEPS
+    VALIDATION_STEPS,
+    split_positions
 )
 from src.data.loader import load_dataset
 from src.data.preprocessing import (
@@ -72,6 +76,7 @@ def parse_args():
         type=int,
         default=DEFAULT_SEED
     )
+    add_dataset_argument(parser)
     return parser.parse_args()
 
 
@@ -87,7 +92,9 @@ def save_existing_evidence():
         NEURAL_TUNING_RESULTS_DIR / "lstm_best_per_l.csv"
     )
     window_rows = lstm_results[
-        lstm_results["seq_len"].astype(int).isin([48, 96])
+        lstm_results["seq_len"].astype(int).isin(
+            [hours_to_steps(48), hours_to_steps(96)]
+        )
     ].copy()
     window_rows["experiment_protocol"] = EXPERIMENT_PROTOCOL
     window_path = RESULTS_DIR / "lstm_daily_window_comparison.csv"
@@ -101,8 +108,12 @@ def save_existing_evidence():
     )
     same_window_rows = pd.concat(
         [
-            arima_results[arima_results["seq_len"].astype(int) == 720],
-            sarima_results[sarima_results["seq_len"].astype(int) == 720]
+            arima_results[
+                arima_results["seq_len"].astype(int) == hours_to_steps(720)
+            ],
+            sarima_results[
+                sarima_results["seq_len"].astype(int) == hours_to_steps(720)
+            ]
         ],
         ignore_index=True
     )
@@ -204,13 +215,16 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
     seq_len = int(best_setting["seq_len"])
     params = params_from_best_setting(best_setting)
     config = ExperimentConfig(params=params, seq_len=seq_len)
-    X_train, y_train, X_val, y_val, scaler = prepare_data_for_l(
+    train_windows, val_windows, scaler = prepare_data_for_l(
         df_proc=df_proc,
         seq_len=seq_len,
         validation_steps=VALIDATION_STEPS
     )
+    y_train = train_windows.targets
+    y_val = val_windows.targets
+    n_features = train_windows.n_features
 
-    train_end = int(len(df_proc) * TRAIN_RATIO)
+    train_end, _ = split_positions(len(df_proc))
     train_target_index = df_proc.index[seq_len:train_end]
     validation_index = df_proc.index[
         train_end:train_end + len(y_val)
@@ -239,21 +253,19 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
         set_random_seed(seed)
         model = get_model(
             model_name="lstm",
-            input_shape=(seq_len, X_train.shape[2]),
+            input_shape=(seq_len, n_features),
             config=config
         )
         model = train_model(
             model=model,
-            X_train=X_train[train_mask],
-            y_train=y_train[train_mask],
-            X_val=X_val[validation_mask],
-            y_val=y_val[validation_mask],
+            train_windows=train_windows.subset(train_mask),
+            val_windows=val_windows.subset(validation_mask),
             config=config,
             seed=seed
         )
         block_predictions = predict_model(
             model=model,
-            X_test=X_val[validation_mask],
+            windows=val_windows.subset(validation_mask),
             batch_size=config.BATCH_SIZE
         ).flatten()
         predictions_scaled[validation_mask] = block_predictions
@@ -261,15 +273,15 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
         block_true = inverse_target(
             scaler,
             y_val[validation_mask],
-            X_train.shape[2]
+            n_features
         )
         block_pred = inverse_target(
             scaler,
             block_predictions,
-            X_train.shape[2]
+            n_features
         )
         block_pred = np.clip(block_pred, 0, None)
-        mae, rmse, mape = evaluate(block_true, block_pred)
+        mae, rmse, _ = evaluate(block_true, block_pred)
         block_rows.append(
             {
                 "block": block,
@@ -280,7 +292,6 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
                 "best_epoch": model.best_epoch,
                 "mae": mae,
                 "rmse": rmse,
-                "mape": mape,
                 "seed": seed,
                 "experiment_protocol": EXPERIMENT_PROTOCOL
             }
@@ -292,15 +303,15 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
     y_true = inverse_target(
         scaler,
         y_val,
-        X_train.shape[2]
+        n_features
     )
     y_pred = inverse_target(
         scaler,
         predictions_scaled,
-        X_train.shape[2]
+        n_features
     )
     y_pred = np.clip(y_pred, 0, None)
-    mae, rmse, mape = evaluate(y_true, y_pred)
+    mae, rmse, _ = evaluate(y_true, y_pred)
     monthly_metrics = calculate_monthly_validation_metrics(
         index=validation_index,
         y_true=y_true,
@@ -317,7 +328,6 @@ def evaluate_specialist_models(df_proc, best_setting, seed):
         **monthly_metrics,
         "val_mae": mae,
         "val_rmse": rmse,
-        "val_mape": mape,
         "experiment_protocol": EXPERIMENT_PROTOCOL
     }
     return summary, block_rows
@@ -365,6 +375,7 @@ def run_specialist_experiment(df, seed, time_feature_results=None):
 def main():
     args = parse_args()
     selected_experiments = set(args.experiments)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     df = load_dataset(DATA_FILE_PATH)
     time_feature_results = None
 
