@@ -31,7 +31,16 @@ FEATURE_SIGNIFICANCE_RESULTS_DIR = RESULTS_ROOT / "feature_significance"
 DAILY_PERIODICITY_RESULTS_DIR = RESULTS_ROOT / "daily_periodicity"
 EFFICIENCY_RESULTS_DIR = RESULTS_ROOT / "computational_efficiency"
 FINAL_COMPARISON_RESULTS_DIR = RESULTS_ROOT / "final_comparison"
+# Cross-model tables, one prediction file per model, and one plot per model.
+FINAL_COMPARISON_TABLES_DIR = FINAL_COMPARISON_RESULTS_DIR / "tables"
+FINAL_COMPARISON_PREDICTIONS_DIR = FINAL_COMPARISON_RESULTS_DIR / "predictions"
+FINAL_COMPARISON_PLOTS_DIR = FINAL_COMPARISON_RESULTS_DIR / "plots"
+FINAL_COMPARISON_PATH = FINAL_COMPARISON_TABLES_DIR / "comparison.csv"
 SUMMARY_RESULTS_DIR = RESULTS_ROOT / "summary"
 PERIODICITY_ABLATION_RESULTS_DIR = RESULTS_ROOT / "periodicity_ablation"
 SEED_SWEEP_RESULTS_DIR = RESULTS_ROOT / "seed_sweep"
 LOSS_COMPARISON_RESULTS_DIR = RESULTS_ROOT / "loss_comparison"
+
+
+def final_predictions_path(model_name):
+    return FINAL_COMPARISON_PREDICTIONS_DIR / f"{model_name}.csv"

@@ -16,8 +16,10 @@ from src.parameter_tuning.ar_parameter_grid import (
     AR_WINDOW_LENGTHS_BY_MODEL
 )
 from src.parameter_tuning.ar_tuner import (
+    count_ar_configurations,
     evaluate_on_validation,
     generate_param_combinations,
+    load_completed_results,
     prepare_ar_data,
     select_best_l,
     tune_ar_model
@@ -48,6 +50,14 @@ def parse_args():
             "Time one configuration per model over this many validation "
             "steps and project the full tuning time, writing nothing. Run it "
             "before committing to a long grid."
+        )
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Report per model how many configurations earlier results already "
+            "cover and how many would be evaluated, then exit without fitting."
         )
     )
     add_dataset_argument(parser)
@@ -141,12 +151,37 @@ def probe_model(model_name, df, steps):
     )
 
 
+def checkpoint_path_for(model_name):
+    return RESULTS_DIR / f"{model_name}_ar_tuning_checkpoint.csv"
+
+
+def all_results_path_for(model_name):
+    return RESULTS_DIR / f"{model_name}_ar_all_tuning_results.csv"
+
+
+def report_planned_configurations(model_name):
+    completed = load_completed_results(
+        all_results_path_for(model_name),
+        checkpoint_path_for(model_name)
+    )
+    reused, new = count_ar_configurations(
+        AR_HYPERPARAMETER_GRIDS[model_name],
+        AR_WINDOW_LENGTHS_BY_MODEL[model_name],
+        completed
+    )
+    print(
+        f"{model_name}: {reused} configurations reused, {new} to evaluate "
+        f"(windows {AR_WINDOW_LENGTHS_BY_MODEL[model_name]})"
+    )
+
+
 def run_tuning_for_ar_model(model_name, df):
     print(
         f"\nstarting autoregressive tuning for {model_name}"
     )
 
-    checkpoint_path = RESULTS_DIR / f"{model_name}_ar_tuning_checkpoint.csv"
+    checkpoint_path = checkpoint_path_for(model_name)
+    all_results_path = all_results_path_for(model_name)
     all_results, best_per_l = tune_ar_model(
         model_name=model_name,
         build_model=get_ar_model_builder(model_name),
@@ -154,7 +189,8 @@ def run_tuning_for_ar_model(model_name, df):
         param_grid=AR_HYPERPARAMETER_GRIDS[model_name],
         window_lengths=AR_WINDOW_LENGTHS_BY_MODEL[model_name],
         validation_steps=VALIDATION_STEPS,
-        checkpoint_path=checkpoint_path
+        checkpoint_path=checkpoint_path,
+        previous_results_path=all_results_path
     )
 
     RESULTS_DIR.mkdir(
@@ -162,9 +198,6 @@ def run_tuning_for_ar_model(model_name, df):
         exist_ok=True
     )
 
-    all_results_path = RESULTS_DIR / (
-        f"{model_name}_ar_all_tuning_results.csv"
-    )
     pd.DataFrame(all_results).to_csv(
         all_results_path,
         index=False
@@ -218,6 +251,11 @@ def main():
     df = load_dataset(
         DATA_FILE_PATH
     )
+
+    if args.dry_run:
+        for model_name in args.models:
+            report_planned_configurations(model_name)
+        return
 
     if args.probe_steps is not None:
         for model_name in args.models:

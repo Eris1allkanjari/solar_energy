@@ -10,6 +10,7 @@ from src.models.rnn.gru import build_gru
 from src.models.rnn.lstm import build_lstm
 from src.models.rnn.lstm_attention import build_lstm_attention
 from src.parameter_tuning.parameter_grid import (
+    EXTENSION_VALUES,
     HYPERPARAMETER_GRIDS,
     SEQ_LENGTHS
 )
@@ -31,6 +32,14 @@ def parse_args():
         choices=MODEL_CHOICES,
         default=["lstm", "gru"],
         help="Attention is optional and excluded from the default run."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Report per model how many configurations earlier results already "
+            "cover and how many would be trained, then exit without training."
+        )
     )
     add_dataset_argument(parser)
     return parser.parse_args()
@@ -72,17 +81,26 @@ def prepare_dataframe(df):
     )
 
 
-def run_tuning_for_model(model_name, df_proc):
-    print(
-        f"\nstarting tuning for {model_name}"
-    )
+def all_results_path_for(model_name):
+    return RESULTS_DIR / f"{model_name}_all_tuning_results.csv"
 
-    all_results, best_per_l = tune_model(
+
+def report_planned_configurations(model_name, df_proc):
+    tune_model(
         model_name=model_name,
         get_model=get_model,
         df_proc=df_proc,
         param_grid=HYPERPARAMETER_GRIDS[model_name],
-        seq_lengths=SEQ_LENGTHS
+        seq_lengths=SEQ_LENGTHS,
+        extension_values=EXTENSION_VALUES,
+        results_path=all_results_path_for(model_name),
+        dry_run=True
+    )
+
+
+def run_tuning_for_model(model_name, df_proc):
+    print(
+        f"\nstarting tuning for {model_name}"
     )
 
     RESULTS_DIR.mkdir(
@@ -90,9 +108,17 @@ def run_tuning_for_model(model_name, df_proc):
         exist_ok=True
     )
 
-    all_results_path = RESULTS_DIR / (
-        f"{model_name}_all_tuning_results.csv"
+    all_results_path = all_results_path_for(model_name)
+    all_results, best_per_l = tune_model(
+        model_name=model_name,
+        get_model=get_model,
+        df_proc=df_proc,
+        param_grid=HYPERPARAMETER_GRIDS[model_name],
+        seq_lengths=SEQ_LENGTHS,
+        extension_values=EXTENSION_VALUES,
+        results_path=all_results_path
     )
+
     pd.DataFrame(all_results).to_csv(
         all_results_path,
         index=False
@@ -140,6 +166,11 @@ def main():
     df_proc = prepare_dataframe(
         df
     )
+
+    if args.dry_run:
+        for model_name in args.models:
+            report_planned_configurations(model_name, df_proc)
+        return
 
     for model_name in args.models:
         run_tuning_for_model(

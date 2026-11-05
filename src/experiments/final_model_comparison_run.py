@@ -31,9 +31,13 @@ from src.experiments.ar_parameter_tuning_run import get_ar_model_builder
 from src.experiments.constants import (
     AR_TUNING_RESULTS_DIR,
     DATA_FILE_PATH,
-    FINAL_COMPARISON_RESULTS_DIR,
+    FINAL_COMPARISON_PATH,
+    FINAL_COMPARISON_PLOTS_DIR,
+    FINAL_COMPARISON_PREDICTIONS_DIR,
+    FINAL_COMPARISON_TABLES_DIR,
     NEURAL_TUNING_RESULTS_DIR,
-    PV_QUALITY_HOURLY_PATH
+    PV_QUALITY_HOURLY_PATH,
+    final_predictions_path
 )
 from src.experiments.parameter_tuning_run import get_model, prepare_dataframe
 from src.parameter_tuning.ar_tuner import final_test as final_ar_test
@@ -55,7 +59,8 @@ from src.training.evaluation import (
 from src.utils.capacity import training_production_range
 
 
-RESULTS_DIR = FINAL_COMPARISON_RESULTS_DIR
+TABLES_DIR = FINAL_COMPARISON_TABLES_DIR
+PLOTS_DIR = FINAL_COMPARISON_PLOTS_DIR
 FINAL_TEST_STEPS = TEST_STEPS
 
 NEURAL_MODELS = [
@@ -167,7 +172,7 @@ def high_quality_period_mapes_from_predictions(model_name):
     scored per seed and averaged, exactly as a fresh run would, which needs the
     per-seed columns; a file saved before those existed cannot be used.
     """
-    path = RESULTS_DIR / f"{model_name}_final_test_predictions.csv"
+    path = final_predictions_path(model_name)
     predictions_df = pd.read_csv(path, parse_dates=["time"])
     seed_columns = [
         column
@@ -239,7 +244,7 @@ def load_existing_summaries(
     test_end,
     test_steps
 ):
-    comparison_path = RESULTS_DIR / "final_model_comparison.csv"
+    comparison_path = FINAL_COMPARISON_PATH
 
     if not comparison_path.exists():
         return []
@@ -830,16 +835,13 @@ def result_summary(
     }
 
 
-def save_model_result(final_result, summary):
-    model_name = final_result["model"]
-    output_path = RESULTS_DIR / (
-        f"{model_name}_comparison_final_test_result.csv"
-    )
+def save_model_result(final_result):
+    """Save one model's test predictions and its actual-versus-predicted plot.
 
-    pd.DataFrame([summary]).to_csv(
-        output_path,
-        index=False
-    )
+    Its metrics are not saved separately: they are its row of the comparison
+    table, which save_comparison writes.
+    """
+    model_name = final_result["model"]
 
     # For neural models y_pred is the average of the seed predictions, while the
     # reported metrics are averages of per-seed metrics. The two can differ a
@@ -872,7 +874,7 @@ def save_model_result(final_result, summary):
         prediction_df["y_true"] - prediction_df["y_pred"]
     ) ** 2
     prediction_df.to_csv(
-        RESULTS_DIR / f"{model_name}_final_test_predictions.csv",
+        final_predictions_path(model_name),
         index=False
     )
 
@@ -880,8 +882,7 @@ def save_model_result(final_result, summary):
         y_true=final_result["y_test"],
         y_pred=final_result["y_pred"],
         output_path=str(
-            RESULTS_DIR
-            / f"{model_name}_comparison_actual_vs_predicted.png"
+            PLOTS_DIR / f"{model_name}_actual_vs_predicted.png"
         ),
         title=(
             f"final comparison for {model_name}, "
@@ -935,7 +936,7 @@ def save_comparison(summaries):
     )
 
     comparison_df.to_csv(
-        RESULTS_DIR / "final_model_comparison.csv",
+        FINAL_COMPARISON_PATH,
         index=False
     )
     # The reported metric set, and nothing else. Percentage error appears only
@@ -944,7 +945,7 @@ def save_comparison(summaries):
     # zero makes the mean meaningless there. Absolute error appears only scaled:
     # over the whole test period, and split into day (06-17) and night (18-05)
     # because pooling lets the trivially-zero dark hours halve it. The divisor
-    # and the period definitions stay in final_model_comparison.csv.
+    # and the period definitions stay in the full comparison table.
     comparison_df[
         [
             "model",
@@ -955,7 +956,7 @@ def save_comparison(summaries):
             "night_nmae"
         ]
     ].sort_values("nmae").to_csv(
-        RESULTS_DIR / "final_model_reported_metrics.csv",
+        TABLES_DIR / "reported_metrics.csv",
         index=False
     )
     comparison_df[
@@ -967,7 +968,7 @@ def save_comparison(summaries):
             "high_quality_by_day_mape"
         ]
     ].sort_values("high_quality_mae").to_csv(
-        RESULTS_DIR / "final_model_high_quality_metrics.csv",
+        TABLES_DIR / "high_quality_metrics.csv",
         index=False
     )
     comparison_df[
@@ -982,7 +983,7 @@ def save_comparison(summaries):
             "high_quality_test_block_mae_std"
         ]
     ].sort_values("test_block_mae_mean").to_csv(
-        RESULTS_DIR / "final_model_block_metrics.csv",
+        TABLES_DIR / "block_metrics.csv",
         index=False
     )
 
@@ -1038,7 +1039,7 @@ def rewrite_tables():
     replayed rather than reimplemented, which keeps the regenerated files
     identical to what a real run would produce.
     """
-    comparison_path = RESULTS_DIR / "final_model_comparison.csv"
+    comparison_path = FINAL_COMPARISON_PATH
 
     if not comparison_path.exists():
         raise FileNotFoundError(
@@ -1062,10 +1063,15 @@ def main():
         args.models
     )
 
-    RESULTS_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    for directory in (
+        TABLES_DIR,
+        FINAL_COMPARISON_PREDICTIONS_DIR,
+        PLOTS_DIR
+    ):
+        directory.mkdir(
+            parents=True,
+            exist_ok=True
+        )
 
     df = load_dataset(
         DATA_FILE_PATH
@@ -1136,8 +1142,7 @@ def main():
         summaries.append(summary)
 
         save_model_result(
-            final_result=final_result,
-            summary=summary
+            final_result=final_result
         )
         save_comparison(
             summaries
@@ -1180,8 +1185,7 @@ def main():
         summaries.append(summary)
 
         save_model_result(
-            final_result=final_result,
-            summary=summary
+            final_result=final_result
         )
         save_comparison(
             summaries
@@ -1210,14 +1214,13 @@ def main():
         )
         summaries.append(summary)
         save_model_result(
-            final_result=final_result,
-            summary=summary
+            final_result=final_result
         )
         save_comparison(summaries)
 
     print(
         "\nsaved final model comparison to "
-        f"{RESULTS_DIR / 'final_model_comparison.csv'}"
+        f"{FINAL_COMPARISON_PATH}"
     )
 
 

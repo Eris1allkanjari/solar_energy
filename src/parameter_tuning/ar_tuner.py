@@ -10,9 +10,15 @@ from sklearn.preprocessing import StandardScaler
 from src.configs.evaluation import (
     AR_REFIT_INTERVAL,
     EXOG_LAG_STEPS,
+    FINAL_FIT_MAX_ITER,
     SELECTION_PROTOCOL,
     VALIDATION_STEPS,
     split_positions
+)
+from src.data.preprocessing import (
+    KNOWN_IN_ADVANCE_FEATURES,
+    SOLAR_ELEVATION_FEATURE,
+    add_solar_geometry
 )
 from src.forecasting.rolling_forecast import rolling_forecast
 from src.parameter_tuning.selection import (
@@ -48,6 +54,9 @@ def generate_param_combinations(param_grid):
 
 
 def prepare_ar_data(df):
+    if SOLAR_ELEVATION_FEATURE not in df.columns:
+        df = add_solar_geometry(df.copy())
+
     y = df["pv_total_kWh"].clip(lower=0)
 
     y = y.ffill().bfill()
@@ -64,7 +73,16 @@ def prepare_ar_data(df):
 
     exog = exog.ffill().bfill()
     exog_unlagged = exog.copy()
-    exog = exog.shift(EXOG_LAG_STEPS)
+
+    # Measured weather is only available once its interval has ended, so the
+    # forecast for an interval sees the previous one. Inputs computed from the
+    # timestamp are known in advance and keep their own interval's value.
+    lagged_columns = [
+        column
+        for column in exog.columns
+        if column not in KNOWN_IN_ADVANCE_FEATURES
+    ]
+    exog[lagged_columns] = exog[lagged_columns].shift(EXOG_LAG_STEPS)
     exog.iloc[:EXOG_LAG_STEPS] = exog_unlagged.iloc[:EXOG_LAG_STEPS]
 
     n_raw = len(y)
@@ -240,7 +258,14 @@ def evaluate_on_validation(
     return result
 
 
-def _key_text(value):
+def key_text(value):
+    """Text form of one configuration value, equal whether fresh or reloaded.
+
+    Results are matched across runs by their configuration, and a value read
+    back from CSV differs in type from the one the grid produced: 256 may
+    return as 256.0, and None as NaN. Both sides are normalised to the same
+    text so a finished configuration is recognised.
+    """
     if value is None:
         return ""
 
@@ -267,7 +292,7 @@ def configuration_key(
     enforce_invertibility
 ):
     return tuple(
-        _key_text(value)
+        key_text(value)
         for value in (
             seq_len,
             order,
@@ -306,22 +331,43 @@ def result_key(result):
     )
 
 
-def load_checkpoint(checkpoint_path):
-    """Completed results from an interrupted run under the current protocol.
+def load_completed_results(*paths):
+    """Results already computed under the current protocol, by configuration.
 
-    Rows written under another protocol or dataset describe a different
+    Reads the results of an earlier finished run and the checkpoint of an
+    interrupted one, so an extended grid only computes the configurations it
+    adds. Rows written under another protocol or dataset describe a different
     experiment and are ignored, so they are recomputed rather than reused.
+    Later paths take precedence.
     """
-    if checkpoint_path is None or not Path(checkpoint_path).exists():
-        return {}
+    completed = {}
 
-    rows = pd.read_csv(checkpoint_path).to_dict(orient="records")
+    for path in paths:
+        if path is None or not Path(path).exists():
+            continue
 
-    return {
-        result_key(row): row
-        for row in rows
-        if row.get("selection_protocol") == SELECTION_PROTOCOL
-    }
+        rows = pd.read_csv(path).to_dict(orient="records")
+        completed.update(
+            {
+                result_key(row): row
+                for row in rows
+                if row.get("selection_protocol") == SELECTION_PROTOCOL
+            }
+        )
+
+    return completed
+
+
+def count_ar_configurations(param_grid, window_lengths, completed):
+    """How many grid configurations are already done, and how many are new."""
+    keys = [
+        params_key(window_length, params)
+        for window_length in window_lengths
+        for params in generate_param_combinations(param_grid)
+    ]
+    reused = sum(key in completed for key in keys)
+
+    return reused, len(keys) - reused
 
 
 def save_checkpoint(checkpoint_path, results):
@@ -347,26 +393,31 @@ def tune_ar_model(
     window_lengths,
     validation_steps=VALIDATION_STEPS,
     refit_interval=AR_REFIT_INTERVAL,
-    checkpoint_path=None
+    checkpoint_path=None,
+    previous_results_path=None
 ):
     """Evaluate every window length and parameter combination on validation.
 
     With a checkpoint path, each configuration's result is saved as soon as it
     finishes, and a rerun after an interruption skips the configurations
     already done. Seasonal models at 10-minute resolution can run for days, so
-    losing all progress to one crash is not acceptable.
+    losing all progress to one crash is not acceptable. Results of an earlier
+    finished run are reused the same way, so extending the grid only costs the
+    configurations it adds.
     """
     y_train, y_val, y_test, exog_train, exog_val, exog_test = prepare_ar_data(
         df
     )
 
-    completed = load_checkpoint(checkpoint_path)
-
-    if completed:
-        print(
-            f"resuming {model_name}: {len(completed)} configurations "
-            "already completed"
-        )
+    completed = load_completed_results(previous_results_path, checkpoint_path)
+    reused, new = count_ar_configurations(
+        param_grid,
+        window_lengths,
+        completed
+    )
+    print(
+        f"{model_name}: {reused} configurations reused, {new} to evaluate"
+    )
 
     all_results = []
     best_per_l = []
@@ -563,9 +614,10 @@ def final_test(
         best_setting["seq_len"]
     )
 
-    params = params_from_best_setting(
-        best_setting
-    )
+    params = {
+        **params_from_best_setting(best_setting),
+        "max_iter": FINAL_FIT_MAX_ITER
+    }
 
     config = ARExperimentConfig(
         params=params,

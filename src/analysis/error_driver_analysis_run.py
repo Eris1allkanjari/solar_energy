@@ -29,7 +29,7 @@ from src.experiments.final_model_comparison_run import load_pv_quality
 from src.experiments.constants import (
     ANALYSIS_RESULTS_DIR,
     DATA_FILE_PATH,
-    FINAL_COMPARISON_RESULTS_DIR
+    final_predictions_path
 )
 from src.utils.solar import solar_elevation
 
@@ -74,10 +74,7 @@ def load_quality():
 
 
 def build_frame(model_name, elevation_threshold):
-    path = (
-        FINAL_COMPARISON_RESULTS_DIR
-        / f"{model_name}_final_test_predictions.csv"
-    )
+    path = final_predictions_path(model_name)
 
     if not path.exists():
         raise FileNotFoundError(f"missing {path}")

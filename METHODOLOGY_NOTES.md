@@ -113,6 +113,30 @@ since dropping only one would leave a broken encoding and a meaningless result.
 The group is called `hour_of_day`, and figures list its columns (`hour_sin`,
 `hour_cos`) so it is not mistaken for a single feature.
 
+### Exogenous inputs of the autoregressive models
+
+ARIMAX and SARIMAX receive measured weather lagged by one interval, because a
+measurement is only available once its interval has ended. Once the previous
+interval's production is known, that lagged weather adds little: on the hourly
+training data its partial correlation with production is about 0.07 for
+radiation and 0.01 for cloud cover. This is why weather inputs have not improved
+the linear models.
+
+Two further inputs are therefore offered to the tuning grid, each in its own
+input sets:
+
+- **Humidity** (lagged), the one weather variable that still adds some
+  information given the previous production (partial correlation about 0.2).
+- **Solar geometry**, `solar_elevation_sin`: the sine of the sun's elevation at
+  the middle of the interval being forecast, floored at zero. It is proportional
+  to clear-sky irradiance on a horizontal surface. It is computed from the
+  timestamp and the site coordinates alone, so it is known before the interval
+  starts and enters **unlagged** without leaking anything.
+
+These inputs are offered to the autoregressive models only. The recurrent
+models keep their feature set, so when the two families are compared the
+difference in inputs must be stated.
+
 ## Reporting periods
 
 ### Defined by clock hour
@@ -134,13 +158,14 @@ real production. Night error is therefore not close to zero, and it should not
 be described as a dark-hours figure.
 
 Solar elevation (NOAA solar-position equations at the site coordinates) is used
-only in the diagnostic scripts in `src/analysis/`, where the question is
-physical and a mask that follows the sun is the right tool. It never enters a
-reported metric.
+in the diagnostic scripts in `src/analysis/`, where the question is physical and
+a mask that follows the sun is the right tool, and as an input the
+autoregressive models can select (see "Exogenous inputs of the autoregressive
+models"). It never defines a reported metric period.
 
 ### Which metric is reported where
 
-| period | reported (`final_model_reported_metrics.csv`) |
+| period | reported (`final_comparison/tables/reported_metrics.csv`) |
 |---|---|
 | whole | NMAE (`nmae`) |
 | day / night | NMAE (`day_nmae`, `night_nmae`) |
@@ -149,7 +174,7 @@ reported metric.
 
 MAPE is never reported for night or for the whole period, since a denominator
 near zero makes it meaningless there. Unscaled MAE, RMSE and the NMAE divisor
-remain available in `final_model_comparison.csv`.
+remain available in `final_comparison/tables/comparison.csv`.
 
 ### Why MAE is split into day and night
 
@@ -273,7 +298,10 @@ matters when interpreting any trend in absolute production.
   depends only on the epoch number, so a retraining follows exactly the path
   tuning took.
 - Autoregressive fits that do not converge are rejected rather than silently
-  accepted.
+  accepted. Tuning allows 200 optimiser iterations. The final refit of a selected
+  setting allows 1000, because it fits a new window and must still reach an
+  optimum. Settings rejected during tuning stay rejected, and a fit that converges
+  within 200 iterations gives the same result under either limit.
 - The selection rule does not take the raw minimum, which is sensitive to
   noise. Every candidate within 2% of the best monthly-block validation MAE is
   eligible. Among those, the rule prefers lower BIC (autoregressive models,
@@ -282,6 +310,12 @@ matters when interpreting any trend in absolute production.
   a simpler model.
 - Baselines are included so that reported skill is anchored to something
   interpretable rather than only to other trained models.
+- The search ranges were extended where the best setting of the original grid
+  sat on an edge. For the autoregressive models the extended grid is crossed in
+  full. For the recurrent models, where a full cross would multiply the grid
+  about twentyfold, each window length's best grid configuration is varied one
+  parameter at a time through the new values, and selection runs over grid and
+  variations together.
 
 ## Open questions
 

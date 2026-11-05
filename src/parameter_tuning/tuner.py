@@ -1,4 +1,6 @@
 import itertools
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -16,6 +18,7 @@ from src.training.trainer import (
 )
 from src.training.predict import predict_model
 from src.training.evaluation import evaluate
+from src.parameter_tuning.ar_tuner import key_text
 from src.parameter_tuning.selection import (
     calculate_monthly_validation_metrics,
     select_robust_candidate
@@ -262,23 +265,105 @@ def evaluate_on_validation(
     return result
 
 
+def neural_configuration_key(seq_len, values, parameter_names):
+    """Identify a configuration by its window length and every grid value."""
+    return (
+        key_text(seq_len),
+        *(key_text(values.get(name)) for name in parameter_names)
+    )
+
+
+def load_completed_neural_results(results_path, parameter_names):
+    """Results of earlier runs under the current protocol, by configuration.
+
+    Rows from another protocol or dataset describe a different experiment and
+    are recomputed rather than reused.
+    """
+    if results_path is None or not Path(results_path).exists():
+        return {}
+
+    rows = pd.read_csv(results_path).to_dict(orient="records")
+
+    return {
+        neural_configuration_key(row["seq_len"], row, parameter_names): row
+        for row in rows
+        if row.get("selection_protocol") == NEURAL_SELECTION_PROTOCOL
+    }
+
+
+def refinement_params(incumbent, param_grid, extension_values):
+    """Single-parameter variations of the incumbent, one per extension value.
+
+    The incumbent's values are read back through params_from_best_setting, which
+    restores the types a reloaded CSV row loses, so the variations train exactly
+    like grid configurations.
+    """
+    typed = params_from_best_setting(incumbent)
+    base = {name: typed[name] for name in param_grid}
+
+    for name, values in extension_values.items():
+        for value in values:
+            if key_text(base[name]) == key_text(value):
+                continue
+
+            yield {**base, name: value}
+
+
 def tune_model(
     model_name,
     get_model,
     df_proc,
     param_grid,
     seq_lengths,
-    validation_steps=VALIDATION_STEPS
+    validation_steps=VALIDATION_STEPS,
+    extension_values=None,
+    results_path=None,
+    dry_run=False
 ):
+    """Evaluate the grid for every window length, then refine around its best.
+
+    With `extension_values`, each window length's best grid configuration is
+    varied one parameter at a time through the extra values, and the final
+    choice is made over grid and variations together. With `results_path`,
+    configurations finished in an earlier run under the current protocol are
+    reused rather than retrained, and the file is rewritten after every newly
+    trained configuration so an interruption loses at most one. With
+    `dry_run`, nothing is trained: the counts of reused and new configurations
+    are printed instead.
+    """
+    parameter_names = sorted(param_grid)
+    completed = load_completed_neural_results(results_path, parameter_names)
     all_results = []
     best_per_l = []
+    visited = set()
+    counts = {"reused": 0, "new": 0, "unknown_refinements": 0}
 
-    for seq_len in seq_lengths:
-        print(f"\nsearching {model_name} with L={seq_len}")
+    def save_progress():
+        if results_path is None or dry_run:
+            return
 
-        results_for_l = []
+        pending = [
+            row for key, row in completed.items() if key not in visited
+        ]
+        pd.DataFrame(all_results + pending).to_csv(results_path, index=False)
 
-        for params in generate_param_combinations(param_grid):
+    def run_or_reuse(seq_len, params):
+        key = neural_configuration_key(seq_len, params, parameter_names)
+
+        if key in visited:
+            return None
+
+        visited.add(key)
+
+        if key in completed:
+            counts["reused"] += 1
+            result = completed[key]
+        else:
+            counts["new"] += 1
+
+            if dry_run:
+                return None
+
             result = evaluate_on_validation(
                 model_name=model_name,
                 get_model=get_model,
@@ -288,13 +373,57 @@ def tune_model(
                 validation_steps=validation_steps
             )
 
-            all_results.append(result)
-            results_for_l.append(result)
+        all_results.append(result)
 
-        best_per_l.append(
-            select_robust_candidate(
-                results_for_l
-            )
+        if key not in completed:
+            save_progress()
+
+        return result
+
+    for seq_len in seq_lengths:
+        if not dry_run:
+            print(f"\nsearching {model_name} with L={seq_len}")
+
+        results_for_l = []
+        grid_complete = True
+
+        for params in generate_param_combinations(param_grid):
+            result = run_or_reuse(seq_len, params)
+
+            if result is None:
+                grid_complete = False
+            else:
+                results_for_l.append(result)
+
+        if extension_values:
+            if grid_complete:
+                incumbent = select_robust_candidate(results_for_l)
+
+                for params in refinement_params(
+                    incumbent,
+                    param_grid,
+                    extension_values
+                ):
+                    result = run_or_reuse(seq_len, params)
+
+                    if result is not None:
+                        results_for_l.append(result)
+            else:
+                # Without the full grid the incumbent is not known yet, so the
+                # variations it will get can only be bounded.
+                counts["unknown_refinements"] += sum(
+                    len(values) for values in extension_values.values()
+                )
+
+        if results_for_l and not dry_run:
+            best_per_l.append(select_robust_candidate(results_for_l))
+
+    if dry_run:
+        print(
+            f"{model_name}: {counts['reused']} configurations reused, "
+            f"{counts['new']} to train, plus up to "
+            f"{counts['unknown_refinements']} refinements that depend on "
+            "grid results not yet available"
         )
 
     return all_results, best_per_l

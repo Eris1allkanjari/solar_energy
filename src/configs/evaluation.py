@@ -11,10 +11,16 @@ TEST_OFFSET = 0
 TEST_STEPS = None
 
 AR_REFIT_INTERVAL = 0
+# Iteration limit of the final refit on train + validation. A selected setting
+# must still reach a converged optimum on that new window, and a fit that already
+# converges within the tuning limit is unchanged by a higher one.
+FINAL_FIT_MAX_ITER = 1000
 # One step is the latest completed interval at either resolution.
 EXOG_LAG_STEPS = 1
 SELECTION_MAE_TOLERANCE = 0.02
-MIN_SEASONAL_WINDOW = 720 * STEPS_PER_HOUR
+# Shortest window a seasonal model is fitted on: 14 daily cycles. Lowered from
+# 30 days because the hourly seasonal models preferred the shortest window.
+MIN_SEASONAL_WINDOW = 336 * STEPS_PER_HOUR
 SEASONAL_PERIOD = 24 * STEPS_PER_HOUR
 RNN_SEEDS = (42, 123, 2026)
 # 5 kWh per hour, the same production rate expressed per interval.
@@ -43,8 +49,10 @@ def split_positions(n_rows):
         int(n_hours * VALIDATION_END_RATIO) * STEPS_PER_HOUR
     )
 
-# Utrecht, the site of the PV systems. Used only to split scored hours into
-# day and night via solar elevation, never as a model input.
+# Utrecht, the site of the PV systems. Used to compute solar elevation: in the
+# diagnostic scripts to split hours by the sun's position, and as the
+# solar_elevation_sin input that the ARIMAX/SARIMAX grids can select. It never
+# defines a reported metric period, which use clock hours.
 SITE_LATITUDE = 52.0907
 SITE_LONGITUDE = 5.1214
 

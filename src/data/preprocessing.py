@@ -2,7 +2,20 @@ import numpy as np
 import pandas as pd
 
 from src.configs.dataset_selection import STEP
+from src.configs.evaluation import SITE_LATITUDE, SITE_LONGITUDE
+from src.utils.solar import solar_elevation
 
+
+# Sine of the sun's elevation at the middle of each interval, floored at zero.
+# It is proportional to the irradiance a cloudless sky would deliver on a
+# horizontal surface, so it tells a linear model how much production the sun's
+# position allows in the interval being forecast.
+SOLAR_ELEVATION_FEATURE = "solar_elevation_sin"
+
+# Inputs computed from the timestamp alone. They are known for the interval
+# being forecast before it starts, so unlike measured weather they are not
+# lagged and using their current value leaks nothing.
+KNOWN_IN_ADVANCE_FEATURES = (SOLAR_ELEVATION_FEATURE,)
 
 DEFAULT_NEURAL_FEATURES = [
     "solar_radiation_Wm2",
@@ -28,7 +41,25 @@ def fractional_hour(index):
     return index.hour + index.minute / 60
 
 
+def add_solar_geometry(df):
+    """Add the clear-sky proxy for each interval's own position of the sun.
+
+    Rows are labelled by interval start, so the elevation is taken at the
+    middle of the interval. Night gives a negative sine, which is floored at
+    zero because the sun below the horizon contributes nothing.
+    """
+    midpoints = df.index + STEP / 2
+    elevation = solar_elevation(midpoints, SITE_LATITUDE, SITE_LONGITUDE)
+    df[SOLAR_ELEVATION_FEATURE] = np.clip(
+        np.sin(np.deg2rad(elevation)),
+        0.0,
+        None
+    )
+    return df
+
+
 def add_time_features(df):
+    add_solar_geometry(df)
     hour = fractional_hour(df.index)
     df["hour_sin"] = np.sin(2 * np.pi * hour / 24)
     df["hour_cos"] = np.cos(2 * np.pi * hour / 24)

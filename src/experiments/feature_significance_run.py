@@ -52,7 +52,10 @@ FEATURE_GROUPS = {
     "temperature": ["temperature_C"],
     "wind_speed": ["wind_speed_ms"],
     "humidity": ["humidity_percent"],
-    "hour_of_day": ["hour_sin", "hour_cos"]
+    "hour_of_day": ["hour_sin", "hour_cos"],
+    # Only the autoregressive models can select this input; a group is tested
+    # only when the selected model uses all of its columns.
+    "solar_geometry": ["solar_elevation_sin"]
 }
 
 

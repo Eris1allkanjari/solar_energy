@@ -1,11 +1,11 @@
-"""Solar geometry used to split forecasts into day and night periods.
+"""Solar geometry from the NOAA solar position equations.
 
 Utrecht daylight ranges from roughly 7.75 hours in December to 16.5 hours in
-June, so a fixed clock window cannot separate day from night. The solar
-elevation angle is computed instead, following the NOAA solar position
-equations. The split depends only on timestamp and site coordinates, never on
-the observed or predicted production, so it cannot leak target information into
-the evaluation.
+June, so a fixed clock window cannot follow the sun. The solar elevation angle
+is used in two places: the diagnostic scripts split hours by it, and its sine
+is an exogenous input the autoregressive models can select. It depends only on
+timestamp and site coordinates, never on observed or predicted production, so
+it is known in advance and cannot leak target information.
 """
 
 import numpy as np

@@ -11,9 +11,9 @@ from src.data.loader import load_dataset
 from src.experiments.constants import (
     AR_TUNING_RESULTS_DIR,
     DATA_FILE_PATH,
-    FINAL_COMPARISON_RESULTS_DIR,
     NEURAL_TUNING_RESULTS_DIR,
-    SUMMARY_RESULTS_DIR
+    SUMMARY_RESULTS_DIR,
+    final_predictions_path
 )
 from src.experiments.final_model_comparison_run import AR_MODELS, NEURAL_MODELS
 from src.parameter_tuning.plots import (
@@ -117,10 +117,7 @@ def load_test_predictions():
     predictions = {}
 
     for model_name in NEURAL_MODELS + AR_MODELS:
-        path = (
-            FINAL_COMPARISON_RESULTS_DIR
-            / f"{model_name}_final_test_predictions.csv"
-        )
+        path = final_predictions_path(model_name)
 
         if not path.exists():
             print(f"skipping {model_name}: missing {path}")

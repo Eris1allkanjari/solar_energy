@@ -21,7 +21,7 @@ from src.configs.evaluation import (
 )
 from src.experiments.constants import (
     ANALYSIS_RESULTS_DIR,
-    FINAL_COMPARISON_RESULTS_DIR
+    final_predictions_path
 )
 from src.training.evaluation import evaluate
 from src.utils.solar import solar_elevation
@@ -50,10 +50,7 @@ def parse_args():
 
 
 def load_predictions(model_name):
-    path = (
-        FINAL_COMPARISON_RESULTS_DIR
-        / f"{model_name}_final_test_predictions.csv"
-    )
+    path = final_predictions_path(model_name)
 
     if not path.exists():
         raise FileNotFoundError(
