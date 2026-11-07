@@ -45,6 +45,7 @@ from src.training.evaluation import evaluate
 RESULTS_DIR = FEATURE_SIGNIFICANCE_RESULTS_DIR
 MODEL_CHOICES = ["lstm", "gru", "arimax", "sarimax"]
 EXPERIMENT_PROTOCOL = "lofo_quality_seed_mean_bootstrap_holm_v2"
+NO_INPUT_MODELS = {"arimax": "arima", "sarimax": "sarima"}
 
 FEATURE_GROUPS = {
     "solar_radiation": ["solar_radiation_Wm2"],
@@ -53,9 +54,10 @@ FEATURE_GROUPS = {
     "wind_speed": ["wind_speed_ms"],
     "humidity": ["humidity_percent"],
     "hour_of_day": ["hour_sin", "hour_cos"],
-    # Only the autoregressive models can select this input; a group is tested
+    # Only the autoregressive models can select these inputs; a group is tested
     # only when the selected model uses all of its columns.
-    "solar_geometry": ["solar_elevation_sin"]
+    "solar_geometry": ["solar_elevation_sin"],
+    "daylight_cloud_cover": ["cloud_cover_daylight"]
 }
 
 
@@ -227,12 +229,21 @@ def evaluate_ar_variant(
     best_setting
 ):
     params = ar_params_from_best_setting(best_setting)
-    params["exog_features"] = features
+    builder_name = model_name
+
+    # Dropping the only input group leaves the same order and window without
+    # exogenous terms, which is the model without inputs (SARIMA or ARIMA).
+    if features:
+        params["exog_features"] = features
+    else:
+        params.pop("exog_features", None)
+        builder_name = NO_INPUT_MODELS[model_name]
+
     model_df = prepare_feature_dataframe(feature_df, features)
     splits = prepare_ar_data(model_df)
     result, predictions = evaluate_ar_validation(
         model_name=model_name,
-        build_model=get_ar_model_builder(model_name),
+        build_model=get_ar_model_builder(builder_name),
         y_train=splits[0],
         y_val=splits[1],
         exog_train=splits[3],

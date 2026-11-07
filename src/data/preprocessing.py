@@ -2,7 +2,11 @@ import numpy as np
 import pandas as pd
 
 from src.configs.dataset_selection import STEP
-from src.configs.evaluation import SITE_LATITUDE, SITE_LONGITUDE
+from src.configs.evaluation import (
+    EXOG_LAG_STEPS,
+    SITE_LATITUDE,
+    SITE_LONGITUDE
+)
 from src.utils.solar import solar_elevation
 
 
@@ -16,6 +20,16 @@ SOLAR_ELEVATION_FEATURE = "solar_elevation_sin"
 # being forecast before it starts, so unlike measured weather they are not
 # lagged and using their current value leaks nothing.
 KNOWN_IN_ADVANCE_FEATURES = (SOLAR_ELEVATION_FEATURE,)
+
+# Cloud cover of the previous interval times the solar elevation of the interval
+# being forecast. Plain cloud cover gets one linear coefficient for all hours, so
+# its night-time values shift night forecasts away from zero; weighted by the
+# sun it is zero at night and only acts while the sun is up.
+DAYLIGHT_CLOUD_FEATURE = "cloud_cover_daylight"
+
+# Inputs that are already built from the previous interval's measurement, so
+# they must not be lagged a second time.
+LAGGED_AT_SOURCE_FEATURES = (DAYLIGHT_CLOUD_FEATURE,)
 
 DEFAULT_NEURAL_FEATURES = [
     "solar_radiation_Wm2",
@@ -58,8 +72,30 @@ def add_solar_geometry(df):
     return df
 
 
+def add_daylight_cloud(df):
+    """Add previous-interval cloud cover weighted by the sun's elevation.
+
+    Needs the cloud cover and solar elevation columns; without cloud cover the
+    frame is returned unchanged.
+    """
+    if "cloud_cover_okta" not in df.columns:
+        return df
+
+    if SOLAR_ELEVATION_FEATURE not in df.columns:
+        add_solar_geometry(df)
+
+    # Fill gaps in cloud cover before weighting, the way the plain input is
+    # filled; filling the product instead would carry an earlier hour's sun.
+    df[DAYLIGHT_CLOUD_FEATURE] = (
+        df["cloud_cover_okta"].ffill().shift(EXOG_LAG_STEPS)
+        * df[SOLAR_ELEVATION_FEATURE]
+    )
+    return df
+
+
 def add_time_features(df):
     add_solar_geometry(df)
+    add_daylight_cloud(df)
     hour = fractional_hour(df.index)
     df["hour_sin"] = np.sin(2 * np.pi * hour / 24)
     df["hour_cos"] = np.cos(2 * np.pi * hour / 24)

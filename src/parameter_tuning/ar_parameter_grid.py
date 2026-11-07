@@ -1,6 +1,9 @@
 from src.configs.dataset_selection import hours_to_steps
 from src.configs.evaluation import MIN_SEASONAL_WINDOW, SEASONAL_PERIOD
-from src.data.preprocessing import SOLAR_ELEVATION_FEATURE
+from src.data.preprocessing import (
+    DAYLIGHT_CLOUD_FEATURE,
+    SOLAR_ELEVATION_FEATURE
+)
 
 
 # Rolling fit windows of 7, 14, 30, 60 and 90 days, in hours, converted to rows
@@ -61,9 +64,12 @@ HUMIDITY = "humidity_percent"
 # known. The solar elevation of the interval being forecast is computed from
 # the timestamp, so it is known in advance and enters unlagged. Radiation on its
 # own was added after removing cloud cover improved the selected SARIMAX in the
-# feature significance study.
+# feature significance study; the extra error came from night hours, where cloud
+# cover still varies while production is zero. Cloud cover weighted by the solar
+# elevation is zero at night, so it tests cloud cover without that effect.
 EXOG_FEATURE_SETS = [
     [RADIATION],
+    [RADIATION, DAYLIGHT_CLOUD_FEATURE],
     [RADIATION, CLOUD],
     [RADIATION, CLOUD, TEMPERATURE],
     [RADIATION, HUMIDITY],

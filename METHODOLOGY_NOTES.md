@@ -133,6 +133,19 @@ input sets:
   timestamp and the site coordinates alone, so it is known before the interval
   starts and enters **unlagged** without leaking anything.
 
+Two more input sets follow from the feature significance study, where removing
+cloud cover improved the selected SARIMAX:
+
+- **Radiation alone**, so the grid contains the set that study pointed to.
+- **Daylight cloud cover**, `cloud_cover_daylight`: the previous interval's cloud
+  cover times the `solar_elevation_sin` of the interval being forecast. A linear
+  model gives plain cloud cover one coefficient for every hour, and at night,
+  where production is zero but cloud cover still varies, that term moved the
+  forecasts away from zero. On validation, all of the extra error from cloud
+  cover came from night hours (night MAE 0.76 against 0.36 kWh without it; day
+  MAE 10.88 against 10.90 kWh). Weighted by the sun, cloud cover is zero at
+  night. It is built from the already lagged cloud cover and is not lagged again.
+
 These inputs are offered to the autoregressive models only. The recurrent
 models keep their feature set, so when the two families are compared the
 difference in inputs must be stated.
@@ -171,6 +184,14 @@ models"). It never defines a reported metric period.
 | day / night | NMAE (`day_nmae`, `night_nmae`) |
 | upwards/downwards | MAPE (`upwards_downwards_mape`) |
 | by day | MAPE (`by_day_mape`) |
+
+In the reported tables (`reported_metrics.csv`, `high_quality_metrics.csv`,
+`block_metrics.csv`) each column name carries its unit, e.g.
+`day_nmae [% of peak production]`, `by_day_mape [%]`, `test_block_mae_mean [kWh]`.
+NMAE is the MAE divided by the peak production in the training period (313.1 kWh
+per hour hourly, 52.8 kWh per 10 minutes), in %, so 3.49 means 0.0349 as a
+fraction. `comparison.csv` keeps the plain names because
+other scripts read it.
 
 MAPE is never reported for night or for the whole period, since a denominator
 near zero makes it meaningless there. Unscaled MAE, RMSE and the NMAE divisor

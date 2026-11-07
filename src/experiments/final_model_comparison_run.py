@@ -939,6 +939,40 @@ def save_comparison(summaries):
         FINAL_COMPARISON_PATH,
         index=False
     )
+    write_reported_tables(comparison_df)
+
+
+# Units shown in the column names of the reported tables. The full comparison
+# table keeps the plain names, since other scripts read its columns by name.
+COLUMN_UNITS = {
+    "upwards_downwards_mape": "%",
+    "by_day_mape": "%",
+    "high_quality_upwards_downwards_mape": "%",
+    "high_quality_by_day_mape": "%",
+    "nmae": "% of peak production",
+    "day_nmae": "% of peak production",
+    "night_nmae": "% of peak production",
+    "high_quality_mae": "kWh",
+    "high_quality_rmse": "kWh",
+    "test_block_mae_mean": "kWh",
+    "test_block_mae_std": "kWh",
+    "test_block_rmse_mean": "kWh",
+    "test_block_rmse_std": "kWh",
+    "high_quality_test_block_mae_mean": "kWh",
+    "high_quality_test_block_mae_std": "kWh"
+}
+
+
+def with_units(table):
+    return table.rename(
+        columns={
+            column: f"{column} [{unit}]"
+            for column, unit in COLUMN_UNITS.items()
+        }
+    )
+
+
+def write_reported_tables(comparison_df):
     # The reported metric set, and nothing else. Percentage error appears only
     # for the upwards/downwards hours (06-09 and 15-17) and the by-day hours
     # (10-14), never for night or the whole period, because a denominator near
@@ -955,7 +989,7 @@ def save_comparison(summaries):
             "day_nmae",
             "night_nmae"
         ]
-    ].sort_values("nmae").to_csv(
+    ].sort_values("nmae").pipe(with_units).to_csv(
         TABLES_DIR / "reported_metrics.csv",
         index=False
     )
@@ -967,7 +1001,7 @@ def save_comparison(summaries):
             "high_quality_upwards_downwards_mape",
             "high_quality_by_day_mape"
         ]
-    ].sort_values("high_quality_mae").to_csv(
+    ].sort_values("high_quality_mae").pipe(with_units).to_csv(
         TABLES_DIR / "high_quality_metrics.csv",
         index=False
     )
@@ -982,7 +1016,7 @@ def save_comparison(summaries):
             "high_quality_test_block_mae_mean",
             "high_quality_test_block_mae_std"
         ]
-    ].sort_values("test_block_mae_mean").to_csv(
+    ].sort_values("test_block_mae_mean").pipe(with_units).to_csv(
         TABLES_DIR / "block_metrics.csv",
         index=False
     )

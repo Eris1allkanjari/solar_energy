@@ -16,8 +16,11 @@ from src.configs.evaluation import (
     split_positions
 )
 from src.data.preprocessing import (
+    DAYLIGHT_CLOUD_FEATURE,
     KNOWN_IN_ADVANCE_FEATURES,
+    LAGGED_AT_SOURCE_FEATURES,
     SOLAR_ELEVATION_FEATURE,
+    add_daylight_cloud,
     add_solar_geometry
 )
 from src.forecasting.rolling_forecast import rolling_forecast
@@ -57,6 +60,9 @@ def prepare_ar_data(df):
     if SOLAR_ELEVATION_FEATURE not in df.columns:
         df = add_solar_geometry(df.copy())
 
+    if DAYLIGHT_CLOUD_FEATURE not in df.columns:
+        df = add_daylight_cloud(df.copy())
+
     y = df["pv_total_kWh"].clip(lower=0)
 
     y = y.ffill().bfill()
@@ -76,11 +82,13 @@ def prepare_ar_data(df):
 
     # Measured weather is only available once its interval has ended, so the
     # forecast for an interval sees the previous one. Inputs computed from the
-    # timestamp are known in advance and keep their own interval's value.
+    # timestamp are known in advance and keep their own interval's value, and
+    # inputs built from an already lagged measurement are not lagged again.
     lagged_columns = [
         column
         for column in exog.columns
         if column not in KNOWN_IN_ADVANCE_FEATURES
+        and column not in LAGGED_AT_SOURCE_FEATURES
     ]
     exog[lagged_columns] = exog[lagged_columns].shift(EXOG_LAG_STEPS)
     exog.iloc[:EXOG_LAG_STEPS] = exog_unlagged.iloc[:EXOG_LAG_STEPS]
