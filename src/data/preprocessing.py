@@ -96,9 +96,6 @@ def add_daylight_cloud(df):
 def add_time_features(df):
     add_solar_geometry(df)
     add_daylight_cloud(df)
-    hour = fractional_hour(df.index)
-    df["hour_sin"] = np.sin(2 * np.pi * hour / 24)
-    df["hour_cos"] = np.cos(2 * np.pi * hour / 24)
 
     day_angle = 2 * np.pi * (df.index.dayofyear - 1) / 365.25
     df["day_of_year_sin"] = np.sin(day_angle)

@@ -16,12 +16,18 @@ Every dataset puts PV and weather on one timestamp convention, so that row t
 describes the interval from t to t+step for the target and the weather alike,
 and each refuses to be written if production and radiation are out of step. See
 to_interval_start and check_alignment.
+
+Every dataset also carries hour_sin and hour_cos, the daily-cycle encoding of
+the interval start (UTC, fractional hour, so 10:40 is 10.667).
 """
 
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+
+from src.data.preprocessing import fractional_hour
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 UTRECHT_DIR = PROJECT_ROOT / "utrecht"
@@ -492,6 +498,10 @@ def main():
 
         merged = BUILDERS[resolution](config)
         correlations = check_alignment(merged, config["step"])
+
+        hour = fractional_hour(pd.DatetimeIndex(merged["time"]))
+        merged["hour_sin"] = np.sin(2 * np.pi * hour / 24)
+        merged["hour_cos"] = np.cos(2 * np.pi * hour / 24)
 
         config["output"].parent.mkdir(parents=True, exist_ok=True)
         merged.to_csv(config["output"], index=False)
